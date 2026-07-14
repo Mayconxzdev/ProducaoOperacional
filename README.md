@@ -10,8 +10,6 @@
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)
 
-![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png)
-
 ## Visão geral
 
 **Produção Operacional** nasceu para tornar o acompanhamento de OPs simples em dois contextos complementares:
@@ -21,6 +19,28 @@
 - **Demonstração:** ambiente seguro para apresentar e praticar o sistema com **10 OPs fictícias**, sem depender de rede, NAS, SMTP ou dados operacionais.
 
 O projeto enfatiza uma experiência direta para operação diária e uma arquitetura preparada para estações em rede: banco SQLite central configurável, cache local para leitura e configuração compartilhada onde isso faz sentido.
+
+## Produto em funcionamento
+
+As imagens abaixo são capturas do aplicativo Windows empacotado, executado no modo Demonstração com dados fictícios locais. Elas mostram os dois contextos que desenhei para a operação: gestão detalhada no Escritório e comunicação visual à distância na TV/Foco.
+
+| Escritório — gestão diária de OPs | TV/Foco — acompanhamento coletivo |
+| --- | --- |
+| ![Tela do modo Escritório com as OPs de demonstração](assets/screenshots/escritorio-demo.png) | ![Painel TV Foco em tela cheia com as OPs de demonstração](assets/screenshots/tv-foco-demo.png) |
+
+| Personalização — setores, cores e contraste |
+| --- |
+| ![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png) |
+
+## O que desenvolvi neste produto
+
+Criei o **Produção Operacional** para que uma OP não fosse apenas um registro em uma tabela, mas parte de um fluxo de trabalho claro para quem executa e para quem acompanha a produção.
+
+- Modelei a rotina de **cadastro, edição, histórico e check de acompanhamento**, incluindo validações de datas e tensão para reduzir erros no preenchimento.
+- Separei a experiência de **Escritório** da **TV/Foco**: uma tela para trabalhar em detalhes e outra, em tela cheia, para comunicar prioridades e andamento para a equipe.
+- Implementei a **personalização operacional** de setores, contraste, temas claro/escuro e disposição do painel para que o sistema se adapte ao ambiente, não o contrário.
+- Estruturei persistência em **SQLite**, cache de leitura, migrações, importação revisável de documentos e empacotamento Windows.
+- Incluí o modo **Demonstração** como uma experiência completa e isolada: ele permite explorar os mesmos fluxos com 10 OPs fictícias locais, sem tocar em dados de trabalho.
 
 <details>
 <summary><strong>English summary</strong></summary>
@@ -89,7 +109,7 @@ flowchart LR
 - Python 3.12 ou superior;
 - Para a importação com OCR: [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) e Poppler instalados localmente (opcional).
 
-### Demonstração — recomendada para conhecer o projeto
+### Demonstração — experimente o fluxo completo
 
 ```powershell
 python -m venv .venv
@@ -130,7 +150,7 @@ O projeto contém um script de build para PyInstaller + Inno Setup 6. O procedim
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_inno_setup.ps1
 ```
 
-O instalador permite selecionar **Escritório**, **TV/Foco** ou **Demonstração**. Para distribuição de portfólio, prefira o modo Demonstração.
+O instalador apresenta os três perfis que fazem parte do produto: **Escritório** para operação detalhada, **TV/Foco** para visualização coletiva e **Demonstração** para experimentar o fluxo completo com dados fictícios locais.
 
 ## Estrutura do projeto
 
@@ -146,9 +166,9 @@ scripts/             # Empacotamento e instalador Windows
 tests/               # Testes automatizados
 ```
 
-## Privacidade e versão pública
+## Privacidade dos dados
 
-Este repositório foi preparado para portfólio. A versão pública contém somente código, imagens de interface e dados demonstrativos fictícios. Configurações privadas, documentos operacionais, bancos, instaladores gerados, credenciais, e-mails corporativos e referências de infraestrutura foram deliberadamente excluídos.
+Este é o repositório autoral de portfólio do produto. Ele preserva a arquitetura, as telas e os fluxos que desenvolvi; as OPs exibidas nas imagens e no modo Demonstração são fictícias exclusivamente para proteger informações confidenciais. Configurações de ambiente, documentos operacionais, bancos de dados, credenciais e referências de infraestrutura não fazem parte do repositório público.
 
 ## Contato
 
