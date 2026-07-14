@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## [2.3.8] - 2026-07-14
+
+- Novo ícone de produto baseado no fluxo de três etapas da operação, disponível no executável, nas janelas, nos atalhos e no instalador.
+- O empacotamento inclui os assets visuais necessários para que o ícone também apareça na aplicação congelada.
+- Corrigido o caminho do ícone na aplicação empacotada pelo PyInstaller.
+
 ## [2.3.7] - 2026-07-14
 
 - O instalador oferece três perfis explícitos: Escritório, TV/Foco e Demonstração.

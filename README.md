@@ -1,11 +1,14 @@
 # Produção Operacional
 
+<img src="assets/producao_operacional.png" width="112" alt="Ícone Produção Operacional">
+
 > Aplicação desktop Windows para organizar ordens de produção em estações de trabalho, painel TV/Foco e uma demonstração totalmente local.
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/Desktop-PySide6-41CD52?logo=qt&logoColor=white)
 ![SQLite](https://img.shields.io/badge/Data-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
+![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)
 
 ![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png)
 
@@ -18,6 +21,13 @@
 - **Demonstração:** ambiente seguro para apresentar e praticar o sistema com **10 OPs fictícias**, sem depender de rede, NAS, SMTP ou dados operacionais.
 
 O projeto enfatiza uma experiência direta para operação diária e uma arquitetura preparada para estações em rede: banco SQLite central configurável, cache local para leitura e configuração compartilhada onde isso faz sentido.
+
+<details>
+<summary><strong>English summary</strong></summary>
+
+Production Operations is a Windows desktop application built with Python, PySide6 and SQLite. It supports office workstations, a full-screen production dashboard and a fully isolated local demo mode with fictional data. The project demonstrates desktop UX, layered architecture, document import, resilient SQLite persistence, packaging and automated tests.
+
+</details>
 
 ## Destaques técnicos
 

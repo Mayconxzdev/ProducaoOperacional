@@ -4,7 +4,7 @@ chcp 65001 >nul
 cd /d "%~dp0"
 
 echo ============================================================
-echo  Gerador do setup - Producao Operacional 2.3.7
+echo  Gerador do setup - Producao Operacional 2.3.8
 echo ============================================================
 echo.
 echo O build usa primeiro o uv para criar um Python 3.12 isolado.

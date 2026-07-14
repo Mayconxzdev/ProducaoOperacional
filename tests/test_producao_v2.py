@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import sys
 import zipfile
 from dataclasses import replace
 from datetime import date, timedelta
@@ -21,7 +22,7 @@ from kanban_app.infrastructure.config import SmtpConfig
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.db.session import Database
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
-from kanban_app.main import _arguments, _uses_demo_mode
+from kanban_app.main import _application_icon_path, _arguments, _uses_demo_mode
 from kanban_app.presentation.widgets.op_form_dialog import OpFormDialog
 from kanban_app.presentation.main_window import MainWindow
 from kanban_app.presentation.widgets.personalization_dialog import PersonalizationDialog
@@ -135,6 +136,7 @@ def test_demo_reset_restores_exact_seed_without_touching_real_data(tmp_path: Pat
 
 
 def test_demo_arguments_and_toolbar_expose_safe_guidance(qtbot, tmp_path: Path):
+    assert _application_icon_path().is_file()
     assert _arguments(["--demo"]).demo
     assert _arguments(["--configure-role", "demo"]).configure_role == "demo"
     assert _uses_demo_mode(_arguments([]), StationRoleDTO(role="demo"))
@@ -145,12 +147,22 @@ def test_demo_arguments_and_toolbar_expose_safe_guidance(qtbot, tmp_path: Path):
     qtbot.addWidget(window)
     window._refresh_timer.stop()
     window._deadline_timer.stop()
-
     toolbar = window.findChild(QToolBar)
     labels = [action.text() for action in toolbar.actions()]
     assert "Guia da demonstração" in labels
     assert "Restaurar 10 OPs fictícias" in labels
     assert window.findChild(QLabel, "demoNotice").text().startswith("MODO DEMONSTRAÇÃO")
+
+
+def test_application_icon_path_uses_pyinstaller_bundle_assets(monkeypatch, tmp_path: Path):
+    bundle_assets = tmp_path / "assets"
+    bundle_assets.mkdir()
+    expected = bundle_assets / "producao_operacional.png"
+    expected.write_bytes(b"icon")
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+
+    assert _application_icon_path() == expected
 
 
 def test_creation_allows_empty_fields_and_status_is_manual(tmp_path: Path):

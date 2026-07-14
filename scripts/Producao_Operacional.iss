@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "2.3.7"
+  #define MyAppVersion "2.3.8"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\dist\Producao_Operacional"

@@ -4,7 +4,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from kanban_app.application.dto import StationRoleDTO
@@ -22,6 +22,17 @@ def _config_path(explicit: str | None) -> Path:
     if getattr(sys, "frozen", False):
         return Path(sys.executable).resolve().parent / "config" / "settings.json"
     return Path(__file__).resolve().parents[2] / "config" / "settings.json"
+
+
+def _application_icon_path() -> Path:
+    """Resolve o ícone distribuído tanto no código-fonte quanto no executável."""
+
+    if getattr(sys, "frozen", False):
+        # No PyInstaller em modo one-dir, arquivos adicionados ficam em
+        # sys._MEIPASS (normalmente _internal), não ao lado do .exe.
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+        return bundle_root / "assets" / "producao_operacional.png"
+    return Path(__file__).resolve().parents[2] / "assets" / "producao_operacional.png"
 
 
 def _arguments(argv: list[str]) -> argparse.Namespace:
@@ -84,6 +95,7 @@ def run() -> int:
         return 0
     app = QApplication(sys.argv)
     app.setApplicationName("Produção Operacional — Demonstração" if demo_mode else "Produção Operacional")
+    app.setWindowIcon(QIcon(str(_application_icon_path())))
     apply_theme(app, container.runtime_store.load_theme_mode(container.config.theme_mode))
     role = launcher_runtime.load_role()
     window = MainWindow(container)

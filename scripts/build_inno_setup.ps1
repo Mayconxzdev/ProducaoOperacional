@@ -269,6 +269,7 @@ Invoke-Checked -FilePath $venvPython -Arguments @(
     "--windowed",
     "--name", "Producao_Operacional",
     "--icon", (Join-Path $root "assets\producao_operacional.ico"),
+    "--add-data", ((Join-Path $root "assets\producao_operacional.png") + ";assets"),
     "--paths", (Join-Path $root "src"),
     (Join-Path $root "run_app.py")
 ) -FailureMessage "PyInstaller falhou."
