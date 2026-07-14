@@ -1,0 +1,17 @@
+{
+  "nas_root": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional",
+  "database_path": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\data\\producao.db",
+  "backups_dir": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\backups",
+  "state_dir": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\state",
+  "imports_incoming_dir": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\imports",
+  "theme_mode": "system",
+  "smtp": {
+    "enabled": false,
+    "host": "",
+    "port": 465,
+    "username": "",
+    "password": "",
+    "from_email": "",
+    "security_mode": "ssl_tls"
+  }
+}

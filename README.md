@@ -1,0 +1,146 @@
+# Produção Operacional
+
+> Aplicação desktop Windows para organizar ordens de produção em estações de trabalho, painel TV/Foco e uma demonstração totalmente local.
+
+![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
+![PySide6](https://img.shields.io/badge/Desktop-PySide6-41CD52?logo=qt&logoColor=white)
+![SQLite](https://img.shields.io/badge/Data-SQLite-003B57?logo=sqlite&logoColor=white)
+![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
+
+![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png)
+
+## Visão geral
+
+**Produção Operacional** nasceu para tornar o acompanhamento de OPs simples em dois contextos complementares:
+
+- **Escritório:** consulta, cadastro, edição, histórico, check de acompanhamento e importação revisável de documentos;
+- **TV/Foco:** painel em tela cheia, paginado e configurável para visualização coletiva;
+- **Demonstração:** ambiente seguro para apresentar e praticar o sistema com **10 OPs fictícias**, sem depender de rede, NAS, SMTP ou dados operacionais.
+
+O projeto enfatiza uma experiência direta para operação diária e uma arquitetura preparada para estações em rede: banco SQLite central configurável, cache local para leitura e configuração compartilhada onde isso faz sentido.
+
+## Destaques técnicos
+
+| Área | O que foi construído |
+| --- | --- |
+| Desktop | Interface nativa em Python/PySide6, com componentes reutilizáveis e fluxo pensado para produtividade. |
+| Dados | SQLite com repositórios, migrações, backup antes de alterações de schema e tratamento de indisponibilidade temporária. |
+| Multiestação | Perfis de instalação para Escritório, TV/Foco e Demonstração; preferências locais e configurações compartilháveis. |
+| Resiliência | Cache local de leitura para manter a TV/Foco útil mesmo durante falhas transitórias de rede. |
+| Importação | Prévia revisável de PDF, DOCX e ODT; extração de campos em português e fallback de OCR para PDFs digitalizados. |
+| Personalização | Setores com cores e contraste próprios, tema claro/escuro no Escritório e layout detalhado da TV/Foco. |
+| Qualidade | Suite automatizada com regras de negócio, migrações, importação, temas, TV/Foco e isolamento do modo demo. |
+
+## Modos de uso
+
+| Modo | Finalidade | Dados utilizados | Acesso à rede |
+| --- | --- | --- |
+| **Escritório** | Gerenciar o fluxo de OPs. | Banco configurado pela organização. | Conforme a configuração local. |
+| **TV/Foco** | Exibir o andamento da produção em painel. | Leitura do banco configurado e cache local. | Usa cache quando a fonte não está disponível. |
+| **Demonstração** | Apresentar, treinar e explorar recursos com segurança. | SQLite local com 10 OPs fictícias. | **Nenhum.** |
+
+O modo Demonstração abre inicialmente em Escritório. A pessoa pode cadastrar, editar, personalizar, abrir a TV/Foco e, quando quiser recomeçar, restaurar as dez OPs originais. Nenhuma ação nesse modo alcança dados reais.
+
+## Arquitetura
+
+```mermaid
+flowchart LR
+    U["Usuário"] --> O["Escritório<br/>PySide6"]
+    U --> T["TV/Foco<br/>PySide6"]
+    U --> D["Demonstração<br/>PySide6"]
+
+    O --> S["Serviços de aplicação"]
+    T --> S
+    S --> R["Repositórios e migrações"]
+    R --> DB[("SQLite configurado")]
+    T -. "último snapshot válido" .-> C[("Cache local")]
+
+    D --> DS["Serviços de aplicação"]
+    DS --> DR["Repositórios e migrações"]
+    DR --> DD[("SQLite local fictício")]
+```
+
+## Recursos da interface
+
+- Cadastro e edição de OPs, status, histórico e Check Acompanhamento;
+- Lista operacional com setores e indicação visual de prazos;
+- Importação revisável de documentos PDF, DOCX e ODT;
+- Normalização de data e tensão para reduzir erros de digitação;
+- Setores com nome, ordem, disponibilidade, cor de fundo e cor de texto;
+- Painel TV/Foco com paginação, escala, colunas, formatos de data e prévia em tela ampliada;
+- Temas **Seguir o Windows**, **Claro** e **Escuro** no modo Escritório;
+- Guia integrado e restauração dos dados no modo Demonstração.
+
+## Executar localmente
+
+### Pré-requisitos
+
+- Windows 10/11;
+- Python 3.12 ou superior;
+- Para a importação com OCR: [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) e Poppler instalados localmente (opcional).
+
+### Demonstração — recomendada para conhecer o projeto
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+python run_app.py --demo
+```
+
+Esse comando não exige configuração de servidor e cria os dados fictícios apenas no perfil local do Windows.
+
+### Ambiente configurado
+
+1. Copie `config/settings.example.json` para `config/settings.json`.
+2. Preencha os caminhos de armazenamento que pertencem ao seu ambiente.
+3. Mantenha `config/settings.json` fora do Git — ele já está protegido pelo `.gitignore`.
+4. Inicie a aplicação:
+
+```powershell
+python run_app.py
+```
+
+> Nunca coloque caminhos internos, bases de produção, senhas SMTP ou dados de clientes em commits públicos.
+
+## Testes
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+python -m pytest -q
+```
+
+Os testes não dependem de documentos corporativos: as amostras necessárias são geradas em tempo de execução.
+
+## Gerar o instalador Windows
+
+O projeto contém um script de build para PyInstaller + Inno Setup 6. O procedimento exige um `config/settings.json` local e sem senha SMTP:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_inno_setup.ps1
+```
+
+O instalador permite selecionar **Escritório**, **TV/Foco** ou **Demonstração**. Para distribuição de portfólio, prefira o modo Demonstração.
+
+## Estrutura do projeto
+
+```text
+src/kanban_app/
+├── application/     # Casos de uso, DTOs e regras de aplicação
+├── domain/          # Entidades, enums e regras de negócio
+├── infrastructure/  # SQLite, configuração, cache, logs e runtime
+└── presentation/    # Janelas, widgets e temas PySide6
+assets/              # Ícone e imagens públicas do projeto
+config/              # Modelo de configuração, sem dados reais
+scripts/             # Empacotamento e instalador Windows
+tests/               # Testes automatizados
+```
+
+## Privacidade e versão pública
+
+Este repositório foi preparado para portfólio. A versão pública contém somente código, imagens de interface e dados demonstrativos fictícios. Configurações privadas, documentos operacionais, bancos, instaladores gerados, credenciais, e-mails corporativos e referências de infraestrutura foram deliberadamente excluídos.
+
+## Contato
+
+**Mayconxzdev**<br>
+[GitHub](https://github.com/Mayconxzdev) · [mayconxz00dev@gmail.com](mailto:mayconxz00dev@gmail.com)

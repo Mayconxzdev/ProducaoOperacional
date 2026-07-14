@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "producao-operacional"
+version = "2.3.7"
+description = "Acompanhamento de Ordens de Producao"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "PySide6>=6.10.1",
+  "SQLAlchemy>=2.0.37",
+  "pypdf>=5.3.1",
+  "python-docx>=1.1.2",
+  "Pillow>=11.1.0",
+  "pdf2image>=1.17.0",
+  "pytesseract>=0.3.10"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.4",
+  "pytest-qt>=4.4.0",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
