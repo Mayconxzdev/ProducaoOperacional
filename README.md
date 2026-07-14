@@ -24,13 +24,17 @@ O projeto enfatiza uma experiência direta para operação diária e uma arquite
 
 As imagens abaixo são capturas do aplicativo Windows empacotado, executado no modo Demonstração com dados fictícios locais. Elas mostram os dois contextos que desenhei para a operação: gestão detalhada no Escritório e comunicação visual à distância na TV/Foco.
 
-| Escritório — gestão diária de OPs | TV/Foco — acompanhamento coletivo |
-| --- | --- |
-| ![Tela do modo Escritório com as OPs de demonstração](assets/screenshots/escritorio-demo.png) | ![Painel TV Foco em tela cheia com as OPs de demonstração](assets/screenshots/tv-foco-demo.png) |
+### Escritório — gestão diária de OPs
 
-| Personalização — setores, cores e contraste |
-| --- |
-| ![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png) |
+![Tela do modo Escritório com as OPs de demonstração](assets/screenshots/escritorio-demo.png)
+
+### TV/Foco — acompanhamento coletivo
+
+![Painel TV/Foco em tela cheia com as OPs de demonstração](assets/screenshots/tv-foco-demo.png)
+
+### Personalização — setores, cores e contraste
+
+![Tela de personalização de setores](assets/screenshots/personalizacao-setores.png)
 
 ## O que desenvolvi neste produto
 

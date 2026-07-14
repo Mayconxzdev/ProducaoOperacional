@@ -1,5 +1,11 @@
 # Histórico de versões
 
+## [2.3.9] - 2026-07-14
+
+- A TV/Foco recebeu um preset Full HD de leitura: pesos de colunas e fontes individuais evitam que OP, status, cliente, modelo, voltagem, entrega e setor sejam cortados.
+- O modo Demonstração passa a apresentar as 10 OPs fictícias com esse preset e atualiza somente o layout visual nas instalações existentes, sem apagar o que foi praticado.
+- Incluído teste de interface que mede os textos visíveis em uma tela 1920×1080 e falha se qualquer célula precisar ser renderizada com reticências.
+
 ## [2.3.8] - 2026-07-14
 
 - Novo ícone de produto baseado no fluxo de três etapas da operação, disponível no executável, nas janelas, nos atalhos e no instalador.

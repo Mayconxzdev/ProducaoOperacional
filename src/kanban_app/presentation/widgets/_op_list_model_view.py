@@ -108,7 +108,7 @@ class OpListModel(QAbstractTableModel):
             return QBrush(QColor(self._foreground_color(op)))
         if role == Qt.FontRole:
             font = QFont(self._item_font)
-            scale = max(50, min(250, int(self._column_font_scales.get(key, 100)))) / 100
+            scale = max(35, min(250, int(self._column_font_scales.get(key, 100)))) / 100
             font.setPointSize(max(7, round(self._item_font.pointSize() * scale)))
             font.setBold(self._tv_bold_all or (not self._tv_mode and key in {"op", "status"}))
             return font
@@ -164,7 +164,7 @@ class OpListModel(QAbstractTableModel):
         self._tv_mode = bool(tv_mode)
         self._tv_bold_all = bool(tv_bold_all)
         self._column_font_scales = {
-            key: max(50, min(250, int((column_font_scales or {}).get(key, 100))))
+            key: max(35, min(250, int((column_font_scales or {}).get(key, 100))))
             for key, _label in self.COLUMNS
         }
         self._column_alignments = {

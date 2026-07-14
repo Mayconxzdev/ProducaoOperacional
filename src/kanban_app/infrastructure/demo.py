@@ -10,9 +10,10 @@ from kanban_app.application.dto import OpFormDTO
 from kanban_app.domain.enums import OpStatus
 from kanban_app.infrastructure.config import AppConfig, SmtpConfig
 from kanban_app.infrastructure.db.repositories import ProductionRepository
+from kanban_app.presentation.tv_settings import default_tv_settings
 
 
-DEMO_SEED_VERSION = 1
+DEMO_SEED_VERSION = 2
 DEMO_FOLDER_NAME = "Demonstracao"
 
 
@@ -69,7 +70,15 @@ def demo_config(paths: DemoPaths) -> AppConfig:
 def seed_demo_data(repository: ProductionRepository, *, station_id: str) -> None:
     """Cria uma base didática previsível, mas visualmente útil para a TV/Foco."""
 
-    if repository.get_setting("demo.seed_version", None) is not None:
+    current_seed_version = repository.get_setting("demo.seed_version", None)
+    if current_seed_version == DEMO_SEED_VERSION:
+        return
+
+    # Uma atualização do modo demonstração não altera as OPs que a pessoa já
+    # praticou. Atualiza apenas o preset visual para que a TV preserve os
+    # textos completos em uma tela Full HD.
+    if current_seed_version is not None:
+        repository.set_settings(_demo_tv_settings(), station_id=station_id)
         return
 
     sectors = {sector.nome: sector.id for sector in repository.list_sectors(active_only=True)}
@@ -102,14 +111,15 @@ def seed_demo_data(repository: ProductionRepository, *, station_id: str) -> None
             ),
             station_id=station_id,
         )
-    repository.set_settings(
-        {
-            "demo.seed_version": DEMO_SEED_VERSION,
-            "tv.lines_per_page": 5,
-            "tv.page_interval_seconds": 8,
-        },
-        station_id=station_id,
-    )
+    repository.set_settings(_demo_tv_settings(), station_id=station_id)
+
+
+def _demo_tv_settings() -> dict[str, object]:
+    """Preset de demonstração: mostra as 10 OPs sem reduzir a leitura."""
+
+    settings = default_tv_settings()
+    settings.update({"lines_per_page": 10, "page_interval_seconds": 8})
+    return {"demo.seed_version": DEMO_SEED_VERSION, **{f"tv.{key}": value for key, value in settings.items()}}
 
 
 def reset_demo_storage(paths: DemoPaths) -> None:

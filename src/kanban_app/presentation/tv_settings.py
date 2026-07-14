@@ -26,19 +26,33 @@ TV_COLUMN_SHORT_LABELS = {key: short for key, _label, short in TV_COLUMNS}
 # viewport da TV; por isso funcionam em qualquer resolução e não geram barra
 # horizontal.
 TV_DEFAULT_WIDTHS = {
-    "op": 92,
-    "status": 150,
-    "cliente": 330,
-    "modelo": 480,
-    "voltagem": 88,
+    "op": 96,
+    "status": 155,
+    "cliente": 365,
+    "modelo": 490,
+    "voltagem": 110,
     "quantidade": 72,
     "inicio": 112,
-    "entrega": 112,
-    "setor": 160,
+    "entrega": 125,
+    "setor": 190,
     "pendencia": 260,
 }
 
-TV_DEFAULT_FONT_SCALES = {key: 100 for key in TV_COLUMN_KEYS}
+# A TV mostra várias OPs ao mesmo tempo. Escalas individuais evitam que os
+# campos de negócio sejam cortados em telas Full HD, sem sacrificar os dados
+# importantes para uma fonte exageradamente grande.
+TV_DEFAULT_FONT_SCALES = {
+    "op": 48,
+    "status": 42,
+    "cliente": 35,
+    "modelo": 48,
+    "voltagem": 35,
+    "quantidade": 70,
+    "inicio": 35,
+    "entrega": 35,
+    "setor": 35,
+    "pendencia": 40,
+}
 TV_DEFAULT_VISIBLE_COLUMNS = ["op", "status", "cliente", "modelo", "voltagem", "quantidade", "entrega", "setor"]
 TV_DEFAULT_ALIGNMENTS = {
     "op": "center",
@@ -53,7 +67,9 @@ TV_DEFAULT_ALIGNMENTS = {
     "pendencia": "left",
 }
 TV_DEFAULT_FORMATS = {key: "text" for key in TV_COLUMN_KEYS}
-TV_DEFAULT_FORMATS.update({"inicio": "dd/MM/yyyy", "entrega": "dd/MM/yyyy"})
+TV_DEFAULT_FORMATS.update({"inicio": "dd/MM/yy", "entrega": "dd/MM/yy"})
+TV_DEFAULT_HEADERS = dict(TV_COLUMN_LABELS)
+TV_DEFAULT_HEADERS.update({"voltagem": "V", "quantidade": "Qtd."})
 TV_DEFAULT_STATUS_LABELS = {
     "PRIORIDADE": "Prioridade",
     "EM_ATRASO": "Em atraso",
@@ -73,7 +89,7 @@ def default_tv_settings() -> dict[str, object]:
         "column_order": list(TV_COLUMN_KEYS),
         "column_widths": dict(TV_DEFAULT_WIDTHS),
         "column_font_scales": dict(TV_DEFAULT_FONT_SCALES),
-        "column_headers": dict(TV_COLUMN_LABELS),
+        "column_headers": dict(TV_DEFAULT_HEADERS),
         "column_alignments": dict(TV_DEFAULT_ALIGNMENTS),
         "column_formats": dict(TV_DEFAULT_FORMATS),
         "sector_labels": {},
@@ -123,9 +139,9 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
     order.extend(key for key in allowed_order if key not in order)
 
     widths = _normalize_int_map(values.get("column_widths"), TV_DEFAULT_WIDTHS, low=20, high=5000)
-    font_scales = _normalize_int_map(values.get("column_font_scales"), TV_DEFAULT_FONT_SCALES, low=50, high=250)
+    font_scales = _normalize_int_map(values.get("column_font_scales"), TV_DEFAULT_FONT_SCALES, low=35, high=250)
 
-    headers = _normalize_text_map(values.get("column_headers"), TV_COLUMN_LABELS, allowed_keys=allowed, max_length=40)
+    headers = _normalize_text_map(values.get("column_headers"), TV_DEFAULT_HEADERS, allowed_keys=allowed, max_length=40)
     alignments = _normalize_choice_map(
         values.get("column_alignments"), TV_DEFAULT_ALIGNMENTS, allowed_values=_ALIGNMENT_VALUES
     )

@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 from docx import Document
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import QLabel, QScrollArea, QToolBar
 
 from kanban_app.application.deadline_alert_service import DeadlineAlertService
@@ -27,7 +28,7 @@ from kanban_app.presentation.widgets.op_form_dialog import OpFormDialog
 from kanban_app.presentation.main_window import MainWindow
 from kanban_app.presentation.widgets.personalization_dialog import PersonalizationDialog
 from kanban_app.presentation.widgets.tv_focus_window import TvFocusWindow
-from kanban_app.presentation.tv_settings import normalize_tv_settings
+from kanban_app.presentation.tv_settings import default_tv_settings, normalize_tv_settings
 
 
 def make_container(tmp_path: Path) -> AppContainer:
@@ -131,7 +132,7 @@ def test_demo_reset_restores_exact_seed_without_touching_real_data(tmp_path: Pat
 
     assert len(restored.production_service.list_active()) == 10
     assert restored.production_service.duplicates("91999") == []
-    assert restored.repository.get_setting("tv.lines_per_page") == 5
+    assert restored.repository.get_setting("tv.lines_per_page") == 10
     assert [op.numero_op for op in real.production_service.list_active()] == ["800002"]
 
 
@@ -467,6 +468,40 @@ def test_tv_uses_shared_widths_and_fills_height_with_fewer_rows(qtbot, tmp_path:
     tv._timer.stop()
 
 
+def test_demo_tv_preset_keeps_visible_values_complete_on_full_hd(qtbot, tmp_path: Path):
+    """A vitrine padrão da TV não deve renderizar campos com reticências."""
+
+    demo = AppContainer.create_demo(tmp_path / "demo-tv")
+    settings = {
+        key: demo.repository.get_setting(f"tv.{key}", value)
+        for key, value in default_tv_settings().items()
+    }
+    tv = TvFocusWindow(settings=settings)
+    qtbot.addWidget(tv)
+    tv.resize(1920, 1080)
+    tv.show()
+    tv.set_ops(demo.production_service.list_active())
+    qtbot.wait(80)
+
+    table = tv.list_view.table
+    padding = int(settings["cell_padding_px"])
+    visible_columns = set(settings["visible_columns"])
+    overflowing: list[tuple[int, str, str]] = []
+    for row in range(table.model().rowCount()):
+        for column, (key, _label) in enumerate(tv.list_view.model.COLUMNS):
+            if key not in visible_columns:
+                continue
+            index = table.model().index(row, column)
+            text = str(index.data(Qt.ItemDataRole.DisplayRole) or "")
+            font = index.data(Qt.ItemDataRole.FontRole)
+            available_width = table.visualRect(index).width() - (2 * padding)
+            if text and QFontMetrics(font).horizontalAdvance(text) > available_width:
+                overflowing.append((row, key, text))
+
+    tv._timer.stop()
+    assert not overflowing, f"A TV cortaria valores visíveis: {overflowing}"
+
+
 def test_personalization_persists_complete_tv_settings_for_other_stations(qtbot, tmp_path: Path):
     container = make_container(tmp_path)
     op = container.production_service.create(valid_form(container))
@@ -489,7 +524,7 @@ def test_personalization_persists_complete_tv_settings_for_other_stations(qtbot,
     assert container.repository.get_setting("tv.font_scale_percent") == 115
     assert container.repository.get_setting("tv.column_widths")["op"] == 92
     assert container.repository.get_setting("tv.column_headers")["voltagem"] == "Volt"
-    assert container.repository.get_setting("tv.column_formats")["entrega"] == "dd/MM/yyyy"
+    assert container.repository.get_setting("tv.column_formats")["entrega"] == "dd/MM/yy"
     dialog.tv_preview._timer.stop()
 
 

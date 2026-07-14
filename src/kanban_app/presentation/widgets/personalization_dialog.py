@@ -957,7 +957,7 @@ class PersonalizationDialog(QDialog):
                 width.setToolTip("Peso relativo da largura. Aumente para dar mais espaço a esta coluna; a TV redistribui toda a tela proporcionalmente.")
                 width.setToolTip("Peso proporcional. Peso 200 ocupa o dobro da largura de peso 100.")
                 font_scale = QSpinBox(self.tv_columns)
-                font_scale.setRange(50, 250)
+                font_scale.setRange(35, 250)
                 font_scale.setSuffix(" %")
                 font_scale.setValue(int(data["font"]))
                 font_scale.setToolTip("Tamanho do texto somente nesta coluna, relativo à escala geral das linhas.")
