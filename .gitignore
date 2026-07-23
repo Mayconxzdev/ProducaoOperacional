@@ -16,6 +16,7 @@ logs/
 nas/
 build/
 dist/
+output/
 *.log
 *.spec
 config/telegram_bot.local.json
