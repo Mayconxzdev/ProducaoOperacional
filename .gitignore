@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .env
 .pytest_cache/
+.playwright-cli/
 .agents/
 .codex/
 .mypy_cache/
