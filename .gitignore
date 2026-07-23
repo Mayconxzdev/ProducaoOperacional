@@ -23,6 +23,7 @@ config/*.local.txt
 config/telegram_bot_archive/
 config/telegram_tessdata/
 config/settings.json
+config/settings.json.tmp
 src/*.egg-info/
 RELATORIO_TXT.txt
 result*.txt

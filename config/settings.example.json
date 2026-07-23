@@ -5,6 +5,22 @@
   "state_dir": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\state",
   "imports_incoming_dir": "\\\\SERVIDOR\\Compartilhamento\\ProducaoOperacional\\imports",
   "theme_mode": "system",
+  "op_discovery": {
+    "enabled": false,
+    "source_root_candidates": [
+      "\\\\SERVIDOR\\Compartilhamento",
+      "Z:\\"
+    ],
+    "production_relative_path": "Clientes\\00_PRODUZINDO",
+    "groups": ["00_GRUPO_A", "00_GRUPO_B"],
+    "document_extensions": [".odt", ".docx", ".pdf"],
+    "schedule": {
+      "days": ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      "times": ["08:00", "14:00", "17:00"]
+    },
+    "initial_sector_name": "Projeto",
+    "worker_lease_minutes": 20
+  },
   "smtp": {
     "enabled": false,
     "host": "",

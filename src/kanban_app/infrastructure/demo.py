@@ -8,7 +8,7 @@ from pathlib import Path
 
 from kanban_app.application.dto import OpFormDTO
 from kanban_app.domain.enums import OpStatus
-from kanban_app.infrastructure.config import AppConfig, SmtpConfig
+from kanban_app.infrastructure.config import AppConfig, OpDiscoveryConfig, SmtpConfig
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.presentation.tv_settings import default_tv_settings
 
@@ -64,6 +64,7 @@ def demo_config(paths: DemoPaths) -> AppConfig:
         imports_dir=paths.imports_dir,
         theme_mode="system",
         smtp=SmtpConfig(enabled=False),
+        op_discovery=OpDiscoveryConfig(enabled=False),
     )
 
 

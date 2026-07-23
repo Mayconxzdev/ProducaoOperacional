@@ -89,6 +89,16 @@ class ImportPreviewDTO:
 
 
 @dataclass(frozen=True, slots=True)
+class OpImportSourceDTO:
+    """Estado técnico de um documento observado pela integração automática."""
+
+    source_key: str
+    state: str
+    source_size: int | None = None
+    source_modified_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeadlineAlertDTO:
     op: OpListDTO
     milestone_days: int

@@ -1,5 +1,14 @@
 # Histórico de versões
 
+## [2.4.0] - 2026-07-23
+
+- Adicionada integração automática opcional de novas OPs do NAS, com dias, horários, raízes, pastas/grupos e formatos monitorados configuráveis na Personalização e execução por Tarefa Agendada do Windows.
+- A primeira execução cria uma linha de base e não abre nem importa documentos que já existiam nas pastas de produção.
+- Novas OPs completas entram diretamente no setor Projeto, em status Em dia, com origem rastreável; documentos incompletos, conflitos de número e múltiplos documentos válidos ficam bloqueados sem criar registros parciais.
+- A descoberta aceita caminhos alternativos do mesmo NAS por nome, IP ou unidade mapeada e usa uma identidade relativa estável para não reimportar ao trocar o endereço de acesso.
+- Novas duplicidades foram bloqueadas no serviço de criação e no fluxo automático; registros históricos existentes não são modificados pela atualização.
+- O instalador agora oferece uma caixa independente para tornar apenas um computador a Estação Integradora, sem vincular essa opção aos perfis Escritório, TV/Foco ou Demonstração.
+
 ## [2.3.9] - 2026-07-14
 
 - A TV/Foco recebeu um preset Full HD de leitura: pesos de colunas e fontes individuais evitam que OP, status, cliente, modelo, voltagem, entrega e setor sejam cortados.

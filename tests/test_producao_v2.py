@@ -16,10 +16,11 @@ from PySide6.QtWidgets import QLabel, QScrollArea, QToolBar
 
 from kanban_app.application.deadline_alert_service import DeadlineAlertService
 from kanban_app.application.document_import_service import DocumentImportService
+from kanban_app.application.op_discovery_service import OpDiscoveryService
 from kanban_app.application.dto import CheckEntryDTO, OpFormDTO, StationRoleDTO
 from kanban_app.bootstrap import AppContainer
 from kanban_app.domain.enums import CheckState, OpStatus
-from kanban_app.infrastructure.config import SmtpConfig
+from kanban_app.infrastructure.config import OpDiscoveryConfig, SmtpConfig, load_config
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.db.session import Database
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
@@ -32,6 +33,7 @@ from kanban_app.presentation.tv_settings import default_tv_settings, normalize_t
 
 
 def make_container(tmp_path: Path) -> AppContainer:
+    tmp_path.mkdir(parents=True, exist_ok=True)
     config = tmp_path / "settings.json"
     config.write_text(
         json.dumps(
@@ -64,6 +66,38 @@ def valid_form(container: AppContainer, **changes) -> OpFormDTO:
         status=OpStatus.EM_DIA,
     )
     return replace(base, **changes)
+
+
+def write_discovery_document(root: Path, group: str, folder: str, *, number: str, delivery: str = "25/12/2026") -> Path:
+    target = (
+        root
+        / "Clientes"
+        / "00_PRODUZINDO"
+        / group
+        / folder
+        / "OP"
+        / f"OP {number}.docx"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    document = Document()
+    document.add_paragraph(
+        f"OP: {number}\nCliente: Cliente Automático\nModelo: Ventilador Teste\n"
+        f"Quantidade: 2\nVoltagem: 220 V\nPrazo de entrega: {delivery}"
+    )
+    document.save(target)
+    return target
+
+
+def make_discovery_service(container: AppContainer, source_root: Path) -> OpDiscoveryService:
+    config = OpDiscoveryConfig(
+        enabled=True,
+        source_root_candidates=(source_root,),
+        production_relative_path=Path("Clientes/00_PRODUZINDO"),
+        groups=("00_GRUPO_A", "00_GRUPO_B"),
+        initial_sector_name="Projeto",
+        worker_lease_minutes=5,
+    )
+    return OpDiscoveryService(container.repository, container.document_import_service, config, station_id=container.station_id)
 
 
 def write_text_pdf(path: Path, text: str) -> None:
@@ -191,12 +225,11 @@ def test_form_validation_when_values_are_provided(tmp_path: Path, changes):
         container.production_service.create(valid_form(container, **changes))
 
 
-def test_duplicate_number_is_allowed_after_ui_confirmation_and_is_discoverable(tmp_path: Path):
+def test_duplicate_number_is_blocked_for_all_new_creations(tmp_path: Path):
     container = make_container(tmp_path)
-    first = container.production_service.create(valid_form(container))
-    second = container.production_service.create(valid_form(container, cliente="Outro cliente"))
-    assert first.id != second.id
-    assert len(container.production_service.duplicates("5059")) == 2
+    container.production_service.create(valid_form(container))
+    with pytest.raises(ValueError, match="Já existe uma OP"):
+        container.production_service.create(valid_form(container, cliente="Outro cliente"))
 
 
 def test_check_acompanhamento_has_fourteen_independent_states_and_history(tmp_path: Path):
@@ -306,6 +339,69 @@ def test_odt_fragmented_spans_preserve_op_fields(tmp_path: Path):
     assert preview.form.voltagem == "220"
     assert preview.form.data_entrega == date(2026, 8, 17)
     assert not preview.missing_fields
+
+
+def test_discovery_first_run_creates_a_baseline_without_reading_or_importing_existing_ops(tmp_path: Path):
+    container = make_container(tmp_path / "app")
+    root = tmp_path / "nas"
+    write_discovery_document(root, "00_GRUPO_A", "01 - OP 7001 - Já Existente", number="7001")
+    (root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_B").mkdir(parents=True)
+
+    service = make_discovery_service(container, root)
+    first = service.run()
+
+    assert first.status == "BASELINED"
+    assert first.baselined == 1
+    assert container.production_service.duplicates("7001") == []
+
+    write_discovery_document(root, "00_GRUPO_A", "02 - OP 7002 - Nova", number="7002")
+    second = service.run()
+
+    assert second.status == "OK"
+    assert second.imported == 1
+    imported = container.production_service.duplicates("7002")
+    assert len(imported) == 1
+    assert imported[0].setor_nome == "Projeto"
+    assert imported[0].status is OpStatus.EM_DIA
+
+
+def test_discovery_blocks_an_existing_op_number_and_keeps_its_source_record(tmp_path: Path):
+    container = make_container(tmp_path / "app")
+    root = tmp_path / "nas"
+    (root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_A").mkdir(parents=True)
+    (root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_B").mkdir(parents=True)
+    service = make_discovery_service(container, root)
+    assert service.run().status == "BASELINED"
+
+    container.production_service.create(valid_form(container, numero_op="7003"))
+    source = write_discovery_document(root, "00_GRUPO_A", "03 - OP 7003 - Repetida", number="7003")
+    result = service.run()
+
+    assert result.imported == 0
+    assert result.blocked_duplicates == 1
+    records = container.repository.import_source_records([source.relative_to(root / "Clientes" / "00_PRODUZINDO").as_posix()])
+    assert next(iter(records.values())).state == "BLOCKED_DUPLICATE"
+
+
+def test_discovery_waits_for_required_fields_and_retries_after_document_changes(tmp_path: Path):
+    container = make_container(tmp_path / "app")
+    root = tmp_path / "nas"
+    (root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_A").mkdir(parents=True)
+    (root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_B").mkdir(parents=True)
+    service = make_discovery_service(container, root)
+    assert service.run().status == "BASELINED"
+
+    source = write_discovery_document(root, "00_GRUPO_A", "04 - OP 7004 - Incompleta", number="7004", delivery="")
+    first = service.run()
+    assert first.pending == 1
+    assert container.production_service.duplicates("7004") == []
+
+    document = Document(source)
+    document.paragraphs[0].add_run("\nPrazo de entrega: 26/12/2026")
+    document.save(source)
+    second = service.run()
+    assert second.imported == 1
+    assert len(container.production_service.duplicates("7004")) == 1
 
 
 def test_flexible_date_field_accepts_digits_and_normalizes(qtbot, tmp_path: Path):
@@ -525,6 +621,33 @@ def test_personalization_persists_complete_tv_settings_for_other_stations(qtbot,
     assert container.repository.get_setting("tv.column_widths")["op"] == 92
     assert container.repository.get_setting("tv.column_headers")["voltagem"] == "Volt"
     assert container.repository.get_setting("tv.column_formats")["entrega"] == "dd/MM/yy"
+    dialog.tv_preview._timer.stop()
+
+
+def test_personalization_saves_op_discovery_monitoring_rules_locally(qtbot, tmp_path: Path):
+    container = make_container(tmp_path)
+    dialog = PersonalizationDialog(container.repository, container.config, container.station_id)
+    qtbot.addWidget(dialog)
+
+    assert "Integração de OPs" in [dialog.tabs.tabText(index) for index in range(dialog.tabs.count())]
+    dialog.op_discovery_enabled.setChecked(True)
+    dialog.op_discovery_roots.setPlainText("\\\\SERVIDOR\\Compartilhamento\nZ:\\")
+    dialog.op_discovery_relative.setText("CERTIFICADOS/Clientes/00_PRODUZINDO")
+    dialog.op_discovery_groups.setPlainText("00_GRUPO_A\n00_GRUPO_B")
+    dialog.op_discovery_pdf.setChecked(False)
+    dialog.op_discovery_days["saturday"].setChecked(True)
+    dialog.op_discovery_days["monday"].setChecked(False)
+    dialog.op_discovery_times.setPlainText("07:30\n16:45")
+    dialog._save()
+
+    saved = load_config(tmp_path / "settings.json").op_discovery
+    assert saved.enabled
+    assert [str(item).rstrip("\\") for item in saved.source_root_candidates] == ["\\\\SERVIDOR\\Compartilhamento", "Z:"]
+    assert saved.production_relative_path == Path("CERTIFICADOS/Clientes/00_PRODUZINDO")
+    assert saved.groups == ("00_GRUPO_A", "00_GRUPO_B")
+    assert saved.document_extensions == (".odt", ".docx")
+    assert saved.schedule_days == ("tuesday", "wednesday", "thursday", "friday", "saturday")
+    assert saved.schedule_times == ("07:30", "16:45")
     dialog.tv_preview._timer.stop()
 
 
@@ -790,7 +913,7 @@ def test_schema_24_adds_sector_text_color_and_normalizes_existing_voltage(tmp_pa
         connection.execute("UPDATE app_meta SET meta_value='24' WHERE meta_key='schema_version'")
         connection.commit()
     upgraded = AppContainer.create(tmp_path / "settings.json")
-    assert upgraded.database.schema_version() == 25
+    assert upgraded.database.schema_version() == Database.SCHEMA_VERSION
     restored_sector = next(item for item in upgraded.production_service.sectors() if item.id == sector.id)
     assert restored_sector.cor_texto.startswith("#")
     assert upgraded.production_service.get(created.id).voltagem == "440"
@@ -823,12 +946,12 @@ def test_schema_23_with_obsolete_mutation_table_upgrades_and_status_save_works(t
         current.row_version,
     )
     assert updated.status is OpStatus.PRIORIDADE
-    assert upgraded.database.schema_version() == upgraded.database.SCHEMA_VERSION == 25
+    assert upgraded.database.schema_version() == upgraded.database.SCHEMA_VERSION == Database.SCHEMA_VERSION
     with sqlite3.connect(db_path) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "op_mutations" not in tables
     assert "station_presence" not in tables
-    assert list((tmp_path / "backups").glob("producao_operacional_pre_v25_*.db"))
+    assert list((tmp_path / "backups").glob(f"producao_operacional_pre_v{Database.SCHEMA_VERSION}_*.db"))
 
 
 def test_status_values_from_legacy_database_are_normalized_before_edit(tmp_path: Path):

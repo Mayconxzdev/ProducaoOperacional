@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -8,12 +9,16 @@ from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 
 from kanban_app.application.dto import StationRoleDTO
+from kanban_app.application.op_discovery_service import OpDiscoveryService
 from kanban_app.bootstrap import AppContainer
 from kanban_app.presentation.main_window import MainWindow
 from kanban_app.presentation.theme import apply_theme
 from kanban_app.infrastructure.demo import demo_paths
 from kanban_app.infrastructure.logging_setup import configure_logging
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
+
+
+logger = logging.getLogger(__name__)
 
 
 def _config_path(explicit: str | None) -> Path:
@@ -43,6 +48,7 @@ def _arguments(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--tv-kiosk", action="store_true")
     parser.add_argument("--tv-windowed", action="store_true")
     parser.add_argument("--monitor", default="")
+    parser.add_argument("--sync-new-ops", action="store_true", help="Executa a integração automática de novas OPs sem abrir interface.")
     return parser.parse_args(argv)
 
 
@@ -77,6 +83,18 @@ def run() -> int:
     # iniciar a demonstração depois que ela for escolhida no instalador.
     launcher_runtime = StationRuntimeStore()
     launcher_role = launcher_runtime.load_role()
+    if args.sync_new_ops:
+        configure_logging()
+        container = AppContainer.create(_config_path(args.config))
+        result = OpDiscoveryService(
+            container.repository,
+            container.document_import_service,
+            container.config.op_discovery,
+            station_id=container.station_id,
+        ).run()
+        logger.info("Integração automática de OPs finalizada: %s", result.summary())
+        print(result.summary())
+        return 0 if result.status in {"OK", "BASELINED", "DISABLED", "LOCKED"} else 1
     demo_mode = _uses_demo_mode(args, launcher_role)
     configure_logging(demo_paths().root / "logs" if demo_mode else None)
     container = AppContainer.create_demo() if demo_mode else AppContainer.create(_config_path(args.config))

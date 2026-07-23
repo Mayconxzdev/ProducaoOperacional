@@ -349,17 +349,35 @@ class MainWindow(QMainWindow):
 
         def ask_confirmation(rows) -> None:
             duplicates = [(preview, matches) for preview, matches in rows if matches]
-            message = f"Criar {len(complete)} OP(s) completa(s)?"
-            if duplicates:
-                numbers = ", ".join(sorted({preview.form.numero_op for preview, _matches in duplicates}))
-                message += (
-                    f"\n\nAtenção: {len(duplicates)} item(ns) possuem número já existente ({numbers}). "
-                    "Eles ainda podem ser criados, mas ficarão como possíveis duplicidades."
+            existing_numbers = {preview.form.numero_op for preview, _matches in duplicates}
+            selected: list[ImportPreviewDTO] = []
+            repeated_in_batch: set[str] = set()
+            for preview, matches in rows:
+                number = preview.form.numero_op
+                if matches or number in {item.form.numero_op for item in selected}:
+                    if not matches:
+                        repeated_in_batch.add(number)
+                    continue
+                selected.append(preview)
+            if not selected:
+                QMessageBox.information(
+                    batch_dialog,
+                    "Nenhuma OP nova",
+                    "Todos os itens selecionados já existem no Kanban ou se repetem no mesmo lote.",
                 )
+                return
+            message = f"Criar {len(selected)} OP(s) nova(s) e completa(s)?"
+            if duplicates:
+                numbers = ", ".join(sorted(existing_numbers))
+                message += (
+                    f"\n\n{len(duplicates)} item(ns) com número já existente ({numbers}) serão bloqueados."
+                )
+            if repeated_in_batch:
+                message += f"\n\nNúmeros repetidos no mesmo lote serão bloqueados: {', '.join(sorted(repeated_in_batch))}."
             if QMessageBox.question(batch_dialog, "Confirmar importação", message) != QMessageBox.StandardButton.Yes:
                 return
             batch_dialog.accept()
-            self._run_task(lambda: self._create_import_batch(complete), self._finish_import_batch, self._write_failed)
+            self._run_task(lambda: self._create_import_batch(selected), self._finish_import_batch, self._write_failed)
 
         self._run_task(inspect_duplicates, ask_confirmation)
 

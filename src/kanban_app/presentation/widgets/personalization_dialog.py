@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+import re
 from dataclasses import replace
+from pathlib import Path
 
 from PySide6.QtCore import QSize, QTime, Qt, Signal
 from PySide6.QtGui import QColor
@@ -13,6 +17,7 @@ from PySide6.QtWidgets import (
     QDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QHeaderView,
@@ -22,6 +27,7 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -35,7 +41,7 @@ from PySide6.QtWidgets import (
 
 from kanban_app import __version__
 from kanban_app.application.dto import OpListDTO, SectorDTO
-from kanban_app.infrastructure.config import AppConfig
+from kanban_app.infrastructure.config import AppConfig, OpDiscoveryConfig, save_op_discovery_config
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
 from kanban_app.presentation.tv_settings import (
@@ -197,6 +203,7 @@ class PersonalizationDialog(QDialog):
         self._build_sectors_tab()
         self._build_office_appearance_tab()
         self._build_deadlines_tab()
+        self._build_op_discovery_tab()
         self._build_tv_tab()
         self._build_email_tab()
         self._build_diagnostics_tab()
@@ -389,6 +396,102 @@ class PersonalizationDialog(QDialog):
         layout.addStretch(1)
         self._refresh_deadline_previews()
         self.tabs.addTab(tab, "Prazos e cores")
+
+    def _build_op_discovery_tab(self) -> None:
+        tab = QWidget(self)
+        self.op_discovery_tab = tab
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
+        title = QLabel("Integração automática de novas OPs", tab)
+        title.setObjectName("dialogTitle")
+        layout.addWidget(title)
+        explanation = QLabel(
+            "Configure exatamente quais pastas devem ser observadas pela estação integradora. "
+            "A rotina só considera subpastas no padrão “pasta da OP\\OP\\arquivo”, não altera o NAS e "
+            "nunca reimporta uma OP já existente.",
+            tab,
+        )
+        explanation.setWordWrap(True)
+        explanation.setObjectName("helpText")
+        layout.addWidget(explanation)
+
+        panel = QFrame(tab)
+        panel.setObjectName("settingsPanel")
+        form = QFormLayout(panel)
+        form.setContentsMargins(22, 22, 22, 22)
+        form.setSpacing(14)
+        discovery = self.config.op_discovery
+        self.op_discovery_enabled = QCheckBox("Permitir que a tarefa agendada importe novas OPs nesta instalação", panel)
+        self.op_discovery_enabled.setChecked(discovery.enabled)
+        self.op_discovery_enabled.setToolTip("A tarefa do Windows ainda precisa ser instalada pela caixa opcional do setup.")
+        self.op_discovery_roots = QPlainTextEdit(panel)
+        self.op_discovery_roots.setPlainText("\n".join(str(item) for item in discovery.source_root_candidates))
+        self.op_discovery_roots.setPlaceholderText("Um caminho por linha. Ex.: \\\\SERVIDOR\\Compartilhamento")
+        self.op_discovery_roots.setMinimumHeight(95)
+        self.op_discovery_relative = QLineEdit(str(discovery.production_relative_path), panel)
+        self.op_discovery_relative.setPlaceholderText("Clientes\\00_PRODUZINDO")
+        self.op_discovery_groups = QPlainTextEdit(panel)
+        self.op_discovery_groups.setPlainText("\n".join(discovery.groups))
+        self.op_discovery_groups.setPlaceholderText("Uma pasta de produção por linha. Ex.: 00_GRUPO_A")
+        self.op_discovery_groups.setMinimumHeight(70)
+        extensions = QHBoxLayout()
+        self.op_discovery_odt = QCheckBox("ODT", panel)
+        self.op_discovery_docx = QCheckBox("DOCX", panel)
+        self.op_discovery_pdf = QCheckBox("PDF", panel)
+        for checkbox, suffix in (
+            (self.op_discovery_odt, ".odt"),
+            (self.op_discovery_docx, ".docx"),
+            (self.op_discovery_pdf, ".pdf"),
+        ):
+            checkbox.setChecked(suffix in discovery.document_extensions)
+            extensions.addWidget(checkbox)
+        extensions.addStretch(1)
+        days_widget = QWidget(panel)
+        days_layout = QGridLayout(days_widget)
+        days_layout.setContentsMargins(0, 0, 0, 0)
+        days_layout.setHorizontalSpacing(10)
+        days_layout.setVerticalSpacing(6)
+        self.op_discovery_days: dict[str, QCheckBox] = {}
+        for index, (key, label) in enumerate((
+            ("monday", "Seg"), ("tuesday", "Ter"), ("wednesday", "Qua"), ("thursday", "Qui"),
+            ("friday", "Sex"), ("saturday", "Sáb"), ("sunday", "Dom"),
+        )):
+            checkbox = QCheckBox(label, days_widget)
+            checkbox.setChecked(key in discovery.schedule_days)
+            checkbox.setToolTip(label)
+            self.op_discovery_days[key] = checkbox
+            days_layout.addWidget(checkbox, index // 4, index % 4)
+        self.op_discovery_times = QPlainTextEdit(panel)
+        self.op_discovery_times.setPlainText("\n".join(discovery.schedule_times))
+        self.op_discovery_times.setPlaceholderText("Um horário por linha, em HH:MM. Ex.: 08:00")
+        self.op_discovery_times.setMinimumHeight(70)
+        schedule = QLabel(
+            "Defina livremente os dias e os horários desta estação. Você pode deixar apenas um horário ou um único dia. "
+            "A entrada sempre será no setor Projeto, com status Em dia.",
+            panel,
+        )
+        schedule.setWordWrap(True)
+        schedule.setObjectName("helpText")
+        form.addRow("Ativação", self.op_discovery_enabled)
+        form.addRow("Caminhos do NAS (prioridade/fallback)", self.op_discovery_roots)
+        form.addRow("Raiz relativa de produção", self.op_discovery_relative)
+        form.addRow("Pastas/grupos monitorados", self.op_discovery_groups)
+        form.addRow("Formatos monitorados", extensions)
+        form.addRow("Dias de execução", days_widget)
+        form.addRow("Horários de execução", self.op_discovery_times)
+        form.addRow("Regra de entrada", schedule)
+        layout.addWidget(panel)
+        note = QLabel(
+            "Alterar os caminhos, grupos ou formatos cria uma nova linha de base para essa regra: documentos já presentes "
+            "nessas novas pastas serão registrados sem leitura e sem importação. Marque a opção do setup somente em um PC.",
+            tab,
+        )
+        note.setWordWrap(True)
+        note.setObjectName("helpText")
+        layout.addWidget(note)
+        layout.addStretch(1)
+        self.tabs.addTab(tab, "Integração de OPs")
 
     # ------------------------------------------------------------------
     # TV/Foco
@@ -1370,6 +1473,12 @@ class PersonalizationDialog(QDialog):
             )
             self.tv_control_tabs.setCurrentIndex(3)
             return
+        try:
+            discovery = self._op_discovery_from_controls()
+        except ValueError as exc:
+            QMessageBox.warning(self, "Integração de OPs", str(exc))
+            self.tabs.setCurrentIndex(self.tabs.indexOf(self.op_discovery_tab))
+            return
         recipients = [value.strip() for value in self.email_recipients.text().split(",") if value.strip()]
         values = {
             "deadline.warning_color": self.warning_color.text(),
@@ -1384,6 +1493,7 @@ class PersonalizationDialog(QDialog):
         }
         values.update({f"tv.{key}": value for key, value in settings.items()})
         try:
+            save_op_discovery_config(self.config.config_path, discovery)
             self.repository.set_settings(values, station_id=self.station_id)
         except Exception as exc:
             QMessageBox.warning(self, "Não foi possível salvar", str(exc))
@@ -1393,7 +1503,81 @@ class PersonalizationDialog(QDialog):
             self.runtime_store.save_theme_mode(mode)
             self.office_theme_changed.emit(mode)
         self.tv_settings_changed.emit(settings)
+        self._refresh_installed_op_task(discovery)
         self.accept()
+
+    def _op_discovery_from_controls(self) -> OpDiscoveryConfig:
+        roots = tuple(Path(value.strip()) for value in self.op_discovery_roots.toPlainText().splitlines() if value.strip())
+        groups = tuple(value.strip() for value in self.op_discovery_groups.toPlainText().splitlines() if value.strip())
+        extensions = tuple(
+            suffix
+            for checkbox, suffix in (
+                (self.op_discovery_odt, ".odt"),
+                (self.op_discovery_docx, ".docx"),
+                (self.op_discovery_pdf, ".pdf"),
+            )
+            if checkbox.isChecked()
+        )
+        relative = Path(self.op_discovery_relative.text().strip())
+        schedule_days = tuple(key for key, checkbox in self.op_discovery_days.items() if checkbox.isChecked())
+        schedule_times = tuple(value.strip() for value in self.op_discovery_times.toPlainText().splitlines() if value.strip())
+        if self.op_discovery_enabled.isChecked() and not roots:
+            raise ValueError("Informe ao menos um caminho de NAS para ativar a integração.")
+        if self.op_discovery_enabled.isChecked() and not groups:
+            raise ValueError("Informe ao menos uma pasta/grupo de produção para ativar a integração.")
+        if self.op_discovery_enabled.isChecked() and not extensions:
+            raise ValueError("Selecione ao menos um formato de documento para monitorar.")
+        if self.op_discovery_enabled.isChecked() and not schedule_days:
+            raise ValueError("Selecione ao menos um dia de execução para ativar a integração.")
+        invalid_times = [value for value in schedule_times if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value)]
+        if self.op_discovery_enabled.isChecked() and (not schedule_times or invalid_times):
+            raise ValueError("Informe um ou mais horários válidos no formato HH:MM.")
+        if not str(relative) or relative.is_absolute() or ".." in relative.parts:
+            raise ValueError("A raiz de produção deve ser um caminho relativo, sem '..' e sem unidade de disco.")
+        current = self.config.op_discovery
+        return OpDiscoveryConfig(
+            enabled=self.op_discovery_enabled.isChecked(),
+            source_root_candidates=roots,
+            production_relative_path=relative,
+            groups=groups or current.groups,
+            document_extensions=extensions or current.document_extensions,
+            schedule_days=schedule_days or current.schedule_days,
+            schedule_times=tuple(dict.fromkeys(schedule_times)) or current.schedule_times,
+            initial_sector_name=current.initial_sector_name,
+            worker_lease_minutes=current.worker_lease_minutes,
+        )
+
+    def _refresh_installed_op_task(self, discovery: OpDiscoveryConfig) -> None:
+        """Atualiza a tarefa apenas no aplicativo empacotado e já instalado.
+
+        A edição em código-fonte/testes não toca no Agendador do Windows. Em uma
+        instalação real, a ausência da tarefa é intencional: ela só é criada pela
+        opção independente do setup.
+        """
+
+        if not getattr(sys, "frozen", False):
+            return
+        automation_dir = Path(sys.executable).resolve().parent / "automation"
+        script = automation_dir / ("install_op_discovery_task.ps1" if discovery.enabled else "remove_op_discovery_task.ps1")
+        if not script.is_file():
+            return
+        arguments = [
+            "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+        ]
+        if discovery.enabled:
+            arguments.extend([
+                "-AppExecutable", str(Path(sys.executable).resolve()),
+                "-ConfigPath", str(self.config.config_path),
+                "-RequireExisting",
+            ])
+        try:
+            completed = subprocess.run(arguments, capture_output=True, text=True, timeout=25, check=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            QMessageBox.warning(self, "Integração de OPs", f"A configuração foi salva, mas não foi possível atualizar a tarefa do Windows: {exc}")
+            return
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "Erro desconhecido").strip()
+            QMessageBox.warning(self, "Integração de OPs", f"A configuração foi salva, mas a tarefa do Windows não foi atualizada: {detail}")
 
     def _read_tv_settings(self) -> dict[str, object]:
         defaults = default_tv_settings()

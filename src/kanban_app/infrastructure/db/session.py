@@ -53,7 +53,7 @@ def _retry_schema_if_locked(fn):
 class Database:
     """Banco SQLite autoritativo no NAS com migração versionada e backup obrigatório."""
 
-    SCHEMA_VERSION = 25
+    SCHEMA_VERSION = 26
     SQLITE_BUSY_TIMEOUT_MS = 10_000
 
     def __init__(self, db_path: Path, *, backups_dir: Path | None = None):
@@ -566,6 +566,11 @@ class Database:
             "deadline_alert_sends": {
                 "id", "op_id", "milestone_date", "milestone_days", "status", "error", "sent_at",
             },
+            "op_import_sources": {
+                "source_key", "source_group", "source_size", "source_modified_at", "state", "op_number",
+                "op_id", "error", "created_at", "updated_at",
+            },
+            "app_run_locks": {"lock_key", "owner_id", "lease_until", "updated_at"},
         }
         inspector = inspect(connection)
         existing_tables = set(inspector.get_table_names())

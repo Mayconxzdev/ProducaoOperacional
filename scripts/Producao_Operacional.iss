@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "2.3.8"
+  #define MyAppVersion "2.4.0"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\dist\Producao_Operacional"
@@ -46,6 +46,7 @@ Name: "desktopicon"; Description: "Criar atalho na área de trabalho"; GroupDesc
 Name: "roleoffice"; Description: "Modo Escritório"; GroupDescription: "Perfil desta estação:"; Flags: exclusive checkedonce
 Name: "roletv"; Description: "Modo TV/Foco"; GroupDescription: "Perfil desta estação:"; Flags: exclusive
 Name: "roledemo"; Description: "Modo Demonstração (local, sem NAS)"; GroupDescription: "Perfil desta estação:"; Flags: exclusive
+Name: "opimportintegrator"; Description: "Ativar integração automática de novas OPs neste computador"; GroupDescription: "Automação opcional:"; Flags: unchecked
 
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
@@ -53,6 +54,8 @@ Source: "..\config\settings.json"; DestDir: "{app}\config"; DestName: "settings.
 Source: "..\config\settings.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\scripts\install_op_discovery_task.ps1"; DestDir: "{app}\automation"; Flags: ignoreversion
+Source: "..\scripts\remove_op_discovery_task.ps1"; DestDir: "{app}\automation"; Flags: ignoreversion
 
 [Icons]
 Name: "{autodesktop}\Produção Operacional"; Filename: "{app}\Producao_Operacional.exe"; Tasks: desktopicon
@@ -76,6 +79,19 @@ begin
   Result := Exec(ExpandConstant('{app}\Producao_Operacional.exe'), Arguments, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
   if not Result then
     MsgBox(FailureMessage + #13#10 + 'Código: ' + IntToStr(ResultCode), mbCriticalError, MB_OK);
+end;
+
+function ConfigureOpImportTask(): Boolean;
+var
+  ResultCode: Integer;
+  Arguments: string;
+begin
+  Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\automation\install_op_discovery_task.ps1') +
+    '" -AppExecutable "' + ExpandConstant('{app}\Producao_Operacional.exe') +
+    '" -ConfigPath "' + ExpandConstant('{app}\config\settings.json') + '" -EnableIntegration';
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if not Result then
+    MsgBox('Falha ao configurar a integração automática de OPs.' + #13#10 + 'Código: ' + IntToStr(ResultCode), mbCriticalError, MB_OK);
 end;
 
 function InitializeSetup(): Boolean;
@@ -115,5 +131,20 @@ begin
       if not ConfigureRole('--configure-role demo', 'Falha ao configurar o modo Demonstração.') then
         RaiseException('Falha ao configurar a estação.');
     end;
+    if WizardIsTaskSelected('opimportintegrator') then
+    begin
+      if not ConfigureOpImportTask() then
+        RaiseException('Falha ao configurar a integração automática de OPs.');
+    end;
   end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+    Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\automation\remove_op_discovery_task.ps1') + '"',
+      ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;

@@ -101,3 +101,31 @@ class DeadlineAlertSendModel(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="PENDING", index=True)
     error: Mapped[str] = mapped_column(Text, nullable=False, default="")
     sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+
+
+class OpImportSourceModel(Base):
+    """Rastreia a fonte para impedir reprocessamento entre execuções e aliases do NAS."""
+
+    __tablename__ = "op_import_sources"
+
+    source_key: Mapped[str] = mapped_column(String(1024), primary_key=True)
+    source_group: Mapped[str] = mapped_column(String(120), nullable=False, default="")
+    source_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_modified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    state: Mapped[str] = mapped_column(String(40), nullable=False, default="BASELINED", index=True)
+    op_number: Mapped[str] = mapped_column(String(80), nullable=False, default="", index=True)
+    op_id: Mapped[int | None] = mapped_column(ForeignKey("ops.id", ondelete="SET NULL"), nullable=True, index=True)
+    error: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class AppRunLockModel(Base):
+    """Lease curto compartilhado para impedir duas estações integradoras simultâneas."""
+
+    __tablename__ = "app_run_locks"
+
+    lock_key: Mapped[str] = mapped_column(String(160), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
+    lease_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)

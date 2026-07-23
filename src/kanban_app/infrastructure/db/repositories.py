@@ -5,7 +5,7 @@ import time
 import unicodedata
 from enum import Enum
 from functools import wraps
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Iterable
 from uuid import uuid4
 
@@ -14,10 +14,10 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from kanban_app.application.application_errors import OptimisticConflictError
-from kanban_app.application.dto import CheckEntryDTO, DeadlineAlertDTO, HistoryEntryDTO, OpDetailDTO, OpFormDTO, OpListDTO, SectorDTO
+from kanban_app.application.dto import CheckEntryDTO, DeadlineAlertDTO, HistoryEntryDTO, OpDetailDTO, OpFormDTO, OpImportSourceDTO, OpListDTO, SectorDTO
 from kanban_app.domain.enums import CheckState, OpStatus, coerce_check_state, coerce_op_status
 from kanban_app.domain.option_lists import CHECK_FIELD_KEYS
-from kanban_app.infrastructure.db.models import AppSettingModel, CheckEntryModel, DeadlineAlertSendModel, OpHistoryModel, OpModel, SectorModel, utc_now
+from kanban_app.infrastructure.db.models import AppRunLockModel, AppSettingModel, CheckEntryModel, DeadlineAlertSendModel, OpHistoryModel, OpImportSourceModel, OpModel, SectorModel, utc_now
 from kanban_app.infrastructure.db.session import Database
 from kanban_app.formatting import normalize_voltage_value
 
@@ -162,6 +162,7 @@ class ProductionRepository:
         self._validate_form(form)
         now = utc_now()
         with self.database.write_session() as session:
+            self._assert_number_is_available(session, form.numero_op)
             op = OpModel(**self._form_values(form), created_at=now, updated_at=now)
             if op.status == OpStatus.CONCLUIDO.value:
                 op.completed_at = now
@@ -172,12 +173,144 @@ class ProductionRepository:
             session.flush()
             return self._detail_from_session(session, op)
 
+    def import_source_records(self, source_keys: Iterable[str]) -> dict[str, OpImportSourceDTO]:
+        keys = list(dict.fromkeys(str(key) for key in source_keys if str(key)))
+        if not keys:
+            return {}
+        with self.database.session() as session:
+            rows = session.execute(select(OpImportSourceModel).where(OpImportSourceModel.source_key.in_(keys))).scalars()
+            return {
+                row.source_key: OpImportSourceDTO(
+                    source_key=row.source_key,
+                    state=row.state,
+                    source_size=row.source_size,
+                    source_modified_at=row.source_modified_at,
+                )
+                for row in rows
+            }
+
+    @_retry_if_database_busy
+    def create_import_baseline(
+        self,
+        entries: Iterable[tuple[str, str, int, datetime]],
+        *,
+        station_id: str,
+    ) -> int:
+        created = 0
+        now = utc_now()
+        with self.database.write_session() as session:
+            for source_key, source_group, source_size, source_modified_at in entries:
+                if session.get(OpImportSourceModel, source_key) is not None:
+                    continue
+                session.add(
+                    OpImportSourceModel(
+                        source_key=source_key,
+                        source_group=source_group,
+                        source_size=source_size,
+                        source_modified_at=source_modified_at,
+                        state="BASELINED",
+                        created_at=now,
+                        updated_at=now,
+                    )
+                )
+                created += 1
+            self._set_setting_in_session(session, "op_discovery.baseline_complete", True, station_id, now)
+        return created
+
+    @_retry_if_database_busy
+    def record_import_source(
+        self,
+        *,
+        source_key: str,
+        source_group: str,
+        source_size: int,
+        source_modified_at: datetime,
+        state: str,
+        op_number: str = "",
+        error: str = "",
+    ) -> None:
+        now = utc_now()
+        with self.database.write_session() as session:
+            record = session.get(OpImportSourceModel, source_key)
+            if record is None:
+                record = OpImportSourceModel(source_key=source_key, created_at=now)
+                session.add(record)
+            record.source_group = str(source_group or "")
+            record.source_size = int(source_size)
+            record.source_modified_at = source_modified_at
+            record.state = str(state)
+            record.op_number = str(op_number or "")
+            record.error = str(error or "")[:4000]
+            record.updated_at = now
+
+    @_retry_if_database_busy
+    def import_op_from_source(
+        self,
+        form: OpFormDTO,
+        *,
+        source_key: str,
+        source_group: str,
+        source_size: int,
+        source_modified_at: datetime,
+        station_id: str,
+    ) -> tuple[str, OpDetailDTO | None]:
+        self._validate_form(form)
+        now = utc_now()
+        with self.database.write_session() as session:
+            previous = session.get(OpImportSourceModel, source_key)
+            if previous is not None and previous.state == "IMPORTED":
+                previous_op = session.get(OpModel, previous.op_id) if previous.op_id else None
+                return "ALREADY_IMPORTED", self._detail_from_session(session, previous_op) if previous_op else None
+            existing = self._find_by_number_in_session(session, form.numero_op)
+            if existing is not None:
+                self._save_import_source_in_session(
+                    session, source_key, source_group, source_size, source_modified_at,
+                    state="BLOCKED_DUPLICATE", op_number=form.numero_op,
+                    error="Já existe uma OP com este número no Kanban.", now=now,
+                )
+                return "BLOCKED_DUPLICATE", self._detail_from_session(session, existing)
+            op = OpModel(**self._form_values(form), created_at=now, updated_at=now)
+            session.add(op)
+            session.flush()
+            self._replace_check_entries(session, op.id, form.acompanhamento, station_id, now)
+            self._history(session, op.id, "IMPORTADA_NAS", "origem", "", source_key, station_id, now)
+            self._save_import_source_in_session(
+                session, source_key, source_group, source_size, source_modified_at,
+                state="IMPORTED", op_number=form.numero_op, op_id=op.id, now=now,
+            )
+            session.flush()
+            return "IMPORTED", self._detail_from_session(session, op)
+
+    @_retry_if_database_busy
+    def claim_run_lock(self, lock_key: str, owner_id: str, *, lease_minutes: int) -> bool:
+        now = utc_now()
+        with self.database.write_session() as session:
+            lock = session.get(AppRunLockModel, lock_key)
+            if lock is not None and lock.owner_id != owner_id and lock.lease_until > now:
+                return False
+            if lock is None:
+                lock = AppRunLockModel(lock_key=lock_key)
+                session.add(lock)
+            lock.owner_id = owner_id
+            lock.lease_until = now + timedelta(minutes=max(1, int(lease_minutes)))
+            lock.updated_at = now
+            return True
+
+    @_retry_if_database_busy
+    def release_run_lock(self, lock_key: str, owner_id: str) -> None:
+        with self.database.write_session() as session:
+            lock = session.get(AppRunLockModel, lock_key)
+            if lock is not None and lock.owner_id == owner_id:
+                session.delete(lock)
+
     @_retry_if_database_busy
     def update_op(self, op_id: int, form: OpFormDTO, *, expected_row_version: int, station_id: str) -> OpDetailDTO:
         self._validate_form(form)
         now = utc_now()
         with self.database.write_session() as session:
             op = self._load_for_write(session, op_id, expected_row_version)
+            if str(form.numero_op or "").strip() != op.numero_op:
+                self._assert_number_is_available(session, form.numero_op, exclude_id=op.id)
             changed = False
             for field, value in self._form_values(form).items():
                 if field == "status":
@@ -594,6 +727,68 @@ class ProductionRepository:
                 sector = session.get(SectorModel, form.setor_id)
                 if sector is None:
                     raise ValueError("O setor informado não está cadastrado.")
+
+    @staticmethod
+    def _find_by_number_in_session(session: Session, number: str, *, exclude_id: int | None = None) -> OpModel | None:
+        clean = str(number or "").strip()
+        if not clean:
+            return None
+        query = select(OpModel).where(OpModel.numero_op == clean).order_by(OpModel.id)
+        if exclude_id is not None:
+            query = query.where(OpModel.id != int(exclude_id))
+        return session.execute(query).scalars().first()
+
+    def _assert_number_is_available(self, session: Session, number: str, *, exclude_id: int | None = None) -> None:
+        if self._find_by_number_in_session(session, number, exclude_id=exclude_id) is not None:
+            raise ValueError(f"Já existe uma OP com o número {str(number).strip()}.")
+
+    @staticmethod
+    def _save_import_source_in_session(
+        session: Session,
+        source_key: str,
+        source_group: str,
+        source_size: int,
+        source_modified_at: datetime,
+        *,
+        state: str,
+        op_number: str,
+        error: str = "",
+        op_id: int | None = None,
+        now: datetime,
+    ) -> OpImportSourceModel:
+        record = session.get(OpImportSourceModel, source_key)
+        if record is None:
+            record = OpImportSourceModel(source_key=source_key, created_at=now)
+            session.add(record)
+        record.source_group = str(source_group or "")
+        record.source_size = int(source_size)
+        record.source_modified_at = source_modified_at
+        record.state = str(state)
+        record.op_number = str(op_number or "")
+        record.op_id = op_id
+        record.error = str(error or "")[:4000]
+        record.updated_at = now
+        return record
+
+    @staticmethod
+    def _set_setting_in_session(session: Session, key: str, value, station_id: str, now: datetime) -> None:
+        row = session.get(AppSettingModel, key)
+        serialized = json.dumps(ProductionRepository._json_compatible(value), ensure_ascii=False)
+        if row is None:
+            session.add(
+                AppSettingModel(
+                    setting_key=key,
+                    setting_value=serialized,
+                    version=1,
+                    updated_station_id=station_id,
+                    updated_at=now,
+                )
+            )
+            return
+        row.setting_value = serialized
+        row.version += 1
+        row.updated_station_id = station_id
+        row.updated_at = now
 
     @staticmethod
     def _load_for_write(session: Session, op_id: int, expected_row_version: int) -> OpModel:

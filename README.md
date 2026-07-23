@@ -9,6 +9,7 @@
 ![SQLite](https://img.shields.io/badge/Data-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
 ![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)
+[![Licença MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 
 ## Visão geral
 
@@ -62,6 +63,7 @@ Production Operations is a Windows desktop application built with Python, PySide
 | Multiestação | Perfis de instalação para Escritório, TV/Foco e Demonstração; preferências locais e configurações compartilháveis. |
 | Resiliência | Cache local de leitura para manter a TV/Foco útil mesmo durante falhas transitórias de rede. |
 | Importação | Prévia revisável de PDF, DOCX e ODT; extração de campos em português e fallback de OCR para PDFs digitalizados. |
+| Integração programada | Opcional, com dias, horários, pastas, grupos e formatos configuráveis por estação; usa linha de base, não reimporta OPs e não altera os arquivos do NAS. |
 | Personalização | Setores com cores e contraste próprios, tema claro/escuro no Escritório e layout detalhado da TV/Foco. |
 | Qualidade | Suite automatizada com regras de negócio, migrações, importação, temas, TV/Foco e isolamento do modo demo. |
 
@@ -137,6 +139,22 @@ python run_app.py
 
 > Nunca coloque caminhos internos, bases de produção, senhas SMTP ou dados de clientes em commits públicos.
 
+### Integração automática de novas OPs
+
+O instalador 2.4.0 mantém os três perfis de uso — Escritório, TV/Foco e Demonstração — e oferece uma caixa independente: **“Ativar integração automática de novas OPs neste computador”**. Marque-a somente em uma estação integradora, que pode ser uma TV/Foco sempre ligada ou outro computador operacional confiável.
+
+A caixa cria a Tarefa Agendada do Windows, inicialmente de segunda a sexta às **08:00**, **14:00** e **17:00**. Na aba **Personalização → Integração de OPs**, a estação integradora pode alterar livremente quais dias e horários executam a rotina — inclusive manter apenas um dia e um horário — além das raízes, pastas/grupos e formatos monitorados. Ao salvar, uma tarefa já instalada é atualizada com a nova agenda; desativar a integração remove a tarefa desta estação.
+
+Na primeira execução, a rotina cria uma linha de base técnica dos documentos já presentes e não abre nem importa nenhuma OP existente. Nas execuções seguintes, ela procura exclusivamente novos documentos na estrutura `pasta da OP\OP\arquivo`, exige número, cliente, modelo, quantidade, tensão e prazo de entrega, e bloqueia qualquer número de OP que já exista no banco. O NAS é somente leitura: nenhum arquivo é movido, renomeado ou apagado.
+
+O comando pode ser diagnosticado sem interface na estação integradora:
+
+```powershell
+.\Producao_Operacional.exe --sync-new-ops --config .\config\settings.json
+```
+
+O bloco `op_discovery` de `config/settings.example.json` documenta a estrutura genérica da regra. Mantenha caminhos, nomes de grupos e demais valores reais somente no `settings.json` local.
+
 ## Testes
 
 ```powershell
@@ -154,7 +172,7 @@ O projeto contém um script de build para PyInstaller + Inno Setup 6. O procedim
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_inno_setup.ps1
 ```
 
-O instalador apresenta os três perfis que fazem parte do produto: **Escritório** para operação detalhada, **TV/Foco** para visualização coletiva e **Demonstração** para experimentar o fluxo completo com dados fictícios locais.
+O instalador apresenta os três perfis que fazem parte do produto: **Escritório** para operação detalhada, **TV/Foco** para visualização coletiva e **Demonstração** para experimentar o fluxo completo com dados fictícios locais. Separadamente, permite marcar a estação como integradora automática de novas OPs; essa escolha não está vinculada ao perfil TV/Foco.
 
 ## Estrutura do projeto
 
@@ -169,6 +187,10 @@ config/              # Modelo de configuração, sem dados reais
 scripts/             # Empacotamento e instalador Windows
 tests/               # Testes automatizados
 ```
+
+## Licença
+
+Distribuído sob a [licença MIT](LICENSE). Os exemplos, imagens e dados do modo Demonstração são fictícios; configurações operacionais locais não fazem parte deste repositório público.
 
 ## Privacidade dos dados
 
