@@ -21,6 +21,12 @@
 
 O projeto enfatiza uma experiência direta para operação diária e uma arquitetura preparada para estações em rede: banco SQLite central configurável, cache local para leitura e configuração compartilhada onde isso faz sentido.
 
+### Estado operacional
+
+A versão interna está implantada na **TV da fábrica** para acompanhamento coletivo e nos computadores do **escritório** para consulta, cadastro e gestão das ordens de produção.
+
+O modo Demonstração presente neste repositório é totalmente isolado e utiliza apenas OPs fictícias locais, sem acesso a banco operacional, documentos empresariais, NAS ou infraestrutura interna.
+
 ## Produto em funcionamento
 
 As imagens abaixo são capturas do aplicativo Windows empacotado, executado no modo Demonstração com dados fictícios locais. Elas mostram os dois contextos que desenhei para a operação: gestão detalhada no Escritório e comunicação visual à distância na TV/Foco.
