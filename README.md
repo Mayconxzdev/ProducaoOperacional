@@ -11,26 +11,26 @@
 ![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)
 [![Licença MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 
-## Leitura rápida para recrutadores
-
-| Dimensão | Evidência atual |
-|---|---|
-| **Implantação** | Versão interna instalada em 10+ computadores e uma TV de fábrica. |
-| **Alcance operacional** | Apoia 20+ profissionais distribuídos em nove setores produtivos, além da gestão no escritório. |
-| **Adoção** | A TV/Foco é utilizada como referência coletiva para identificar novas OPs e acompanhar onde cada ordem está no processo. |
-| **Automação** | Uma estação integradora verifica documentos novos no NAS em horários configurados; a implantação interna executa de segunda a sexta às 10h e 15h. |
-| **Resiliência** | NAS somente leitura, linha de base para não reimportar documentos antigos, cache local e bloqueio de OP duplicada. |
-| **Entrega** | Produto, arquitetura, interface, banco, migrações, importação, instalador, implantação, treinamento e sustentação desenvolvidos por Maycon Ferreira. |
-
 ## Visão geral
 
-O **Produção Operacional** foi construído para dois contextos complementares:
+Criei o **Produção Operacional** para organizar as ordens de produção no escritório e oferecer uma visão coletiva na fábrica. O sistema também acompanha uma origem configurada no NAS e inclui automaticamente novas OPs nos horários definidos pela operação.
+
+| Aspecto | Situação atual |
+|---|---|
+| **Implantação** | Versão interna instalada em 10+ computadores e uma TV de fábrica. |
+| **Alcance** | Apoia 20+ profissionais distribuídos em nove setores produtivos, além da gestão no escritório. |
+| **Uso diário** | A TV/Foco funciona como referência coletiva para identificar novas OPs e acompanhar onde cada ordem está no processo. |
+| **Automação** | Uma estação integradora verifica documentos novos no NAS. Na implantação atual, a rotina executa de segunda a sexta às 10h e 15h. |
+| **Continuidade** | NAS somente leitura, linha de base para não reimportar documentos antigos, cache local e bloqueio de OP duplicada. |
+| **Minha atuação** | Produto, arquitetura, interface, banco, migrações, importação, instalador, implantação, treinamento e sustentação. |
+
+## Modos de uso
 
 - **Escritório:** consulta, cadastro, edição, histórico, check de acompanhamento e importação revisável;
 - **TV/Foco:** painel em tela cheia, paginado e configurável para visualização coletiva na fábrica;
 - **Demonstração:** ambiente local com dez OPs fictícias, sem acessar NAS, banco ou documentos empresariais.
 
-A arquitetura usa SQLite configurável, cache local para leitura, migrações, perfis de instalação e integração agendada. A publicação preserva o funcionamento do produto e substitui todos os dados reais por exemplos.
+A arquitetura usa SQLite configurável, cache local para leitura, migrações, perfis de instalação e integração agendada. A edição pública mantém o funcionamento do produto e substitui todos os dados reais por exemplos.
 
 ## Interface
 
@@ -46,10 +46,10 @@ A arquitetura usa SQLite configurável, cache local para leitura, migrações, p
 
 ![Personalização de setores](assets/screenshots/personalizacao-setores.png)
 
-## O que foi desenvolvido
+## O que desenvolvi
 
 - cadastro, edição, histórico, status e check de acompanhamento;
-- experiência separada para trabalho detalhado no Escritório e comunicação visual na TV/Foco;
+- experiências separadas para o trabalho detalhado no Escritório e a comunicação visual na TV/Foco;
 - setores configuráveis com nome, ordem, disponibilidade, cores e contraste;
 - temas claro, escuro e alinhado ao Windows;
 - SQLite com repositórios, migrações e backup antes de alterações de schema;
@@ -83,14 +83,6 @@ flowchart LR
     TV -. falha transitória .-> CACHE[("Cache local")]
 ```
 
-## Modos de uso
-
-| Modo | Finalidade | Dados |
-|---|---|---|
-| **Escritório** | Gerenciar OPs e histórico. | Banco configurado pela organização. |
-| **TV/Foco** | Acompanhamento coletivo da produção. | Banco configurado e cache local. |
-| **Demonstração** | Apresentar e treinar com segurança. | SQLite local com dados fictícios. |
-
 ## Arquitetura
 
 ```text
@@ -116,7 +108,7 @@ python -m pip install -r requirements-dev.txt
 python run_app.py --demo
 ```
 
-O modo demonstração não exige servidor e não alcança dados empresariais.
+O modo Demonstração não exige servidor e não acessa dados empresariais.
 
 ## Testes
 
@@ -135,11 +127,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build_inno_setup.p
 
 O instalador suporta os perfis Escritório, TV/Foco e Demonstração e permite definir uma estação integradora separadamente.
 
-## Privacidade e limites
+## Estado e limites
 
 - OPs, documentos, caminhos, configurações, credenciais e bancos empresariais não fazem parte do repositório;
 - as capturas usam dados fictícios;
-- o produto atual atende a uma operação interna; expansão multiunidade exigiria identidade corporativa, telemetria, banco transacional central e observabilidade;
+- o produto atual atende a uma operação interna; uma expansão multiunidade exigiria identidade corporativa, telemetria, banco transacional central e observabilidade;
 - OCR é opcional e toda importação permanece revisável.
 
 ## Autor
