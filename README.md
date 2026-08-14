@@ -1,15 +1,25 @@
-# Produção Operacional
+<div align="center">
 
 <img src="assets/producao_operacional.png" width="112" alt="Ícone Produção Operacional">
 
-> Aplicação desktop Windows para organizar ordens de produção no escritório, automatizar a entrada de novas OPs e manter uma visão coletiva em TV/Foco na fábrica.
+# Produção Operacional
+
+**Aplicação desktop Windows implantada em 10+ computadores e 1 TV de fábrica, apoiando 20+ profissionais em 9 setores produtivos.**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/Desktop-PySide6-41CD52?logo=qt&logoColor=white)
 ![SQLite](https://img.shields.io/badge/Data-SQLite-003B57?logo=sqlite&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-Windows-0078D4?logo=windows&logoColor=white)
-![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)
+[![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml)
 [![Licença MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
+
+[Case no portfólio](https://mayconxzdev.github.io/cases/producao-operacional/) · [Executar demonstração](#executar-a-demonstração) · [Arquitetura](#arquitetura)
+
+<img src="assets/screenshots/escritorio-demo.png" alt="Tela demonstrativa do Produção Operacional no modo Escritório" width="100%">
+
+</div>
+
+> Aplicação desktop Windows para organizar ordens de produção no escritório, automatizar a entrada de novas OPs e manter uma visão coletiva em TV/Foco na fábrica.
 
 ## Visão geral
 
