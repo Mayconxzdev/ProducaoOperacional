@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import date, datetime
 
 
@@ -71,20 +72,18 @@ def normalize_voltage_value(value: str | None) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
-def format_tensao_display(value: str | None) -> str:
-    text = normalize_voltage_value(value)
-    if not text:
-        return "-"
-    if text == "N/A":
-        return text
+def contrast_text_color(background: str) -> str:
+    """Calcula cor de texto de alto contraste (#111827 ou #ffffff) para uma cor de fundo."""
+    value = str(background or "#475569").lstrip("#")
+    try:
+        red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    except (ValueError, IndexError):
+        return "#ffffff"
+    luminance = (red * 299 + green * 587 + blue * 114) / 1000
+    return "#111827" if luminance > 150 else "#ffffff"
 
-    compact = re.sub(r"\s+", "", text.upper())
-    match = re.fullmatch(r"(?P<digits>\d{2,4})(?:V)?(?P<motor>M|\(M\))?", compact)
-    if match is None:
-        return text
 
-    digits = match.group("digits")
-    has_motor_suffix = bool(match.group("motor"))
-    if has_motor_suffix:
-        return f"{digits}V (M)"
-    return f"{digits}V"
+def sector_key(value: str) -> str:
+    """Gera uma chave alfanumérica normalizada sem acentos para comparação estável de setores."""
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return "".join(char for char in normalized if char.isalnum() and not unicodedata.combining(char))

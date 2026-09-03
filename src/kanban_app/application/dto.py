@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, date
 
-from kanban_app.domain.enums import CheckState, OpStatus
+from kanban_app.domain.enums import OpStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,8 +18,14 @@ class SectorDTO:
 
 @dataclass(frozen=True, slots=True)
 class CheckEntryDTO:
+    """Texto livre de um campo do acompanhamento interno da OP.
+
+    O atributo conservou o nome ``state`` por compatibilidade com os registros
+    já existentes, mas não representa mais uma lista fechada de opções.
+    """
+
     field_key: str
-    state: CheckState = CheckState.NAO_INFORMADO
+    state: str = ""
     updated_at: datetime | None = None
     station_id: str = ""
 
@@ -113,6 +119,37 @@ class StationRoleDTO:
     start_with_windows: bool = False
 
 
-@dataclass(slots=True)
-class ImportBatchResultDTO:
-    previews: list[ImportPreviewDTO] = field(default_factory=list)
+@dataclass(frozen=True, slots=True)
+class OpReminderFormDTO:
+    mensagem: str
+    horario: str
+    op_id: int | None = None
+    numero_op: str = ""
+    cliente: str = ""
+    modelo: str = ""
+    data_inicio: date | None = None
+    data_fim: date | None = None
+    duracao_segundos: int = 30
+    tipo_recorrencia: str = "ONCE"
+    dias_semana: tuple[str, ...] = ()
+    ativo: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class OpReminderDTO:
+    id: str
+    mensagem: str
+    horario: str
+    op_id: int | None
+    numero_op: str
+    cliente: str
+    modelo: str
+    data_inicio: date | None
+    data_fim: date | None
+    duracao_segundos: int
+    tipo_recorrencia: str
+    dias_semana: tuple[str, ...]
+    ativo: bool
+    created_by_station: str
+    created_at: datetime
+    updated_at: datetime

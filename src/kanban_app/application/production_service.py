@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import date
 
 from kanban_app.application.dto import OpDetailDTO, OpFormDTO, OpListDTO, SectorDTO
@@ -46,11 +45,6 @@ class ProductionService:
 
     def sectors(self, active_only: bool = False) -> list[SectorDTO]:
         return self.repository.list_sectors(active_only=active_only)
-
-    def default_sector_for_import(self, form: OpFormDTO) -> OpFormDTO:
-        if form.setor_id:
-            return form
-        return replace(form, setor_id=self.form_defaults().setor_id)
 
     @staticmethod
     def deadline_band(

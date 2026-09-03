@@ -90,9 +90,6 @@ class StationRuntimeStore:
                 continue
         return result
 
-    def clear_cache(self) -> None:
-        self.cache_path.unlink(missing_ok=True)
-
     def load_theme_mode(self, default: str = "system") -> str:
         fallback = self._normalize_theme_mode(default)
         try:

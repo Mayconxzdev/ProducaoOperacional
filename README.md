@@ -141,9 +141,9 @@ python run_app.py
 
 ### Integração automática de novas OPs
 
-O instalador 2.4.0 mantém os três perfis de uso — Escritório, TV/Foco e Demonstração — e oferece uma caixa independente: **“Ativar integração automática de novas OPs neste computador”**. Marque-a somente em uma estação integradora, que pode ser uma TV/Foco sempre ligada ou outro computador operacional confiável.
+O instalador 2.4.1 mantém os três perfis de uso — Escritório, TV/Foco e Demonstração — e oferece uma caixa independente: **“Ativar integração automática de novas OPs neste computador”**. Marque-a somente em uma estação integradora, que pode ser uma TV/Foco sempre ligada ou outro computador operacional confiável.
 
-A caixa cria a Tarefa Agendada do Windows, inicialmente de segunda a sexta às **08:00**, **14:00** e **17:00**. Na aba **Personalização → Integração de OPs**, a estação integradora pode alterar livremente quais dias e horários executam a rotina — inclusive manter apenas um dia e um horário — além das raízes, pastas/grupos e formatos monitorados. Ao salvar, uma tarefa já instalada é atualizada com a nova agenda; desativar a integração remove a tarefa desta estação.
+A caixa cria a Tarefa Agendada do Windows, inicialmente de segunda a sexta às **08:00**, **14:00** e **17:00**. Na aba **Personalização → Integração de OPs**, os caminhos, pastas/grupos, formatos, dias e horários formam uma **regra compartilhada**: podem ser alterados em qualquer computador conectado ao mesmo banco. O PC marcado como estação integradora — por exemplo, a TV/Foco sempre aberta — detecta a alteração e atualiza sua própria tarefa, sem varredura adicional de OPs. Marcar **Este computador é a estação integradora** e salvar cria ou atualiza a tarefa local; desmarcar remove somente a tarefa daquela estação.
 
 Na primeira execução, a rotina cria uma linha de base técnica dos documentos já presentes e não abre nem importa nenhuma OP existente. Nas execuções seguintes, ela procura exclusivamente novos documentos na estrutura `pasta da OP\OP\arquivo`, exige número, cliente, modelo, quantidade, tensão e prazo de entrega, e bloqueia qualquer número de OP que já exista no banco. O NAS é somente leitura: nenhum arquivo é movido, renomeado ou apagado.
 

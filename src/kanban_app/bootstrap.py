@@ -5,7 +5,7 @@ from pathlib import Path
 
 from kanban_app.application.document_import_service import DocumentImportService
 from kanban_app.application.production_service import ProductionService
-from kanban_app.infrastructure.config import AppConfig, load_config
+from kanban_app.infrastructure.config import AppConfig, OP_DISCOVERY_SHARED_RULE_KEY, load_config, op_discovery_rule_payload
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.db.session import Database
 from kanban_app.infrastructure.demo import DemoPaths, demo_config, demo_paths, reset_demo_storage, seed_demo_data
@@ -33,7 +33,7 @@ class AppContainer:
         current_station_id = station_id()
         repository = ProductionRepository(database)
         if not database.is_read_only():
-            cls._ensure_default_settings(repository, current_station_id)
+            cls._ensure_default_settings(repository, current_station_id, config)
         return cls(
             config=config,
             database=database,
@@ -55,7 +55,7 @@ class AppContainer:
         database.create_schema()
         current_station_id = f"demo_{station_id()}"
         repository = ProductionRepository(database)
-        cls._ensure_default_settings(repository, current_station_id)
+        cls._ensure_default_settings(repository, current_station_id, config)
         seed_demo_data(repository, station_id=current_station_id)
         return cls(
             config=config,
@@ -77,7 +77,7 @@ class AppContainer:
         return self.create_demo(self.demo_paths.root)
 
     @staticmethod
-    def _ensure_default_settings(repository: ProductionRepository, station: str) -> None:
+    def _ensure_default_settings(repository: ProductionRepository, station: str, config: AppConfig) -> None:
         defaults = {
             "deadline.warning_color": "#f9a8d4",
             "deadline.critical_color": "#ef4444",
@@ -88,6 +88,8 @@ class AppContainer:
             "deadline.email_recipients": [],
         }
         defaults.update({f"tv.{key}": value for key, value in default_tv_settings().items()})
+        if config.op_discovery.source_root_candidates and config.op_discovery.groups:
+            defaults[OP_DISCOVERY_SHARED_RULE_KEY] = op_discovery_rule_payload(config.op_discovery)
         for key, value in defaults.items():
             if repository.get_setting(key, None) is None:
                 repository.set_setting(key, value, station_id=station)

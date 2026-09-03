@@ -3,16 +3,10 @@ from __future__ import annotations
 from datetime import date
 from collections.abc import Mapping
 
-from kanban_app.domain.enums import OpStatus
+from kanban_app.domain.enums import OP_STATUS_LABELS, OpStatus
 
 
-_DEFAULT_STATUS_LABELS = {
-    OpStatus.PRIORIDADE.value: "Prioridade",
-    OpStatus.EM_ATRASO.value: "Em atraso",
-    OpStatus.EM_DIA.value: "Em dia",
-    OpStatus.AGUARDANDO.value: "Aguardando",
-    OpStatus.CONCLUIDO.value: "Concluído",
-}
+_DEFAULT_STATUS_LABELS = {status.value: label for status, label in OP_STATUS_LABELS.items()}
 
 
 def tv_focus_op_label(value: str) -> str:

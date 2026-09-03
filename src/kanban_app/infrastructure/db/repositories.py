@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import time
-import unicodedata
 from enum import Enum
 from functools import wraps
 from datetime import date, datetime, timedelta
@@ -14,12 +13,12 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from kanban_app.application.application_errors import OptimisticConflictError
-from kanban_app.application.dto import CheckEntryDTO, DeadlineAlertDTO, HistoryEntryDTO, OpDetailDTO, OpFormDTO, OpImportSourceDTO, OpListDTO, SectorDTO
-from kanban_app.domain.enums import CheckState, OpStatus, coerce_check_state, coerce_op_status
+from kanban_app.application.dto import CheckEntryDTO, DeadlineAlertDTO, HistoryEntryDTO, OpDetailDTO, OpFormDTO, OpImportSourceDTO, OpListDTO, OpReminderDTO, OpReminderFormDTO, SectorDTO
+from kanban_app.domain.enums import CheckState, OpStatus, coerce_op_status
 from kanban_app.domain.option_lists import CHECK_FIELD_KEYS
-from kanban_app.infrastructure.db.models import AppRunLockModel, AppSettingModel, CheckEntryModel, DeadlineAlertSendModel, OpHistoryModel, OpImportSourceModel, OpModel, SectorModel, utc_now
+from kanban_app.infrastructure.db.models import AppRunLockModel, AppSettingModel, CheckEntryModel, DeadlineAlertSendModel, OpHistoryModel, OpImportSourceModel, OpModel, OpReminderModel, SectorModel, utc_now
 from kanban_app.infrastructure.db.session import Database
-from kanban_app.formatting import normalize_voltage_value
+from kanban_app.formatting import contrast_text_color, normalize_voltage_value, sector_key
 
 
 def _retry_if_database_busy(fn):
@@ -403,9 +402,9 @@ class ProductionRepository:
         if not clean_name:
             raise ValueError("Informe o nome do setor.")
         with self.database.write_session() as session:
-            target_key = self._sector_key(clean_name)
+            target_key = sector_key(clean_name)
             existing = next(
-                (row for row in session.execute(select(SectorModel)).scalars() if self._sector_key(row.nome) == target_key),
+                (row for row in session.execute(select(SectorModel)).scalars() if sector_key(row.nome) == target_key),
                 None,
             )
             if existing:
@@ -417,7 +416,7 @@ class ProductionRepository:
                 nome=clean_name,
                 ordem=order,
                 cor=background,
-                cor_texto=self._color_or_default(cor_texto, default=self._contrast_text_color(background)),
+                cor_texto=self._color_or_default(cor_texto, default=contrast_text_color(background)),
                 ativo=True,
             )
             session.add(sector)
@@ -443,9 +442,9 @@ class ProductionRepository:
             clean_name = str(nome or "").strip()
             if not clean_name:
                 raise ValueError("Informe o nome do setor.")
-            target_key = self._sector_key(clean_name)
+            target_key = sector_key(clean_name)
             duplicate = next(
-                (row for row in session.execute(select(SectorModel)).scalars() if row.id != sector.id and self._sector_key(row.nome) == target_key),
+                (row for row in session.execute(select(SectorModel)).scalars() if row.id != sector.id and sector_key(row.nome) == target_key),
                 None,
             )
             if duplicate:
@@ -454,7 +453,7 @@ class ProductionRepository:
             sector.cor = self._color_or_default(cor)
             sector.cor_texto = self._color_or_default(
                 cor_texto,
-                default=sector.cor_texto or self._contrast_text_color(sector.cor),
+                default=sector.cor_texto or contrast_text_color(sector.cor),
             )
             sector.ativo = bool(ativo)
             self._reorder_sector(session, sector.id, max(1, int(ordem)))
@@ -667,7 +666,17 @@ class ProductionRepository:
     @staticmethod
     def _checks_for_op(session: Session, op_id: int) -> tuple[CheckEntryDTO, ...]:
         values = {row.field_key: row for row in session.execute(select(CheckEntryModel).where(CheckEntryModel.op_id == op_id)).scalars()}
-        return tuple(CheckEntryDTO(field_key=key, state=coerce_check_state(values[key].state), updated_at=values[key].updated_at, station_id=values[key].station_id) if key in values else CheckEntryDTO(field_key=key) for key in CHECK_FIELD_KEYS)
+        return tuple(
+            CheckEntryDTO(
+                field_key=key,
+                state=ProductionRepository._check_text(values[key].state),
+                updated_at=values[key].updated_at,
+                station_id=values[key].station_id,
+            )
+            if key in values
+            else CheckEntryDTO(field_key=key)
+            for key in CHECK_FIELD_KEYS
+        )
 
     @staticmethod
     def _history(session: Session, op_id: int, event_type: str, field_name: str, old_value: str, new_value: str, station_id: str, now: datetime) -> None:
@@ -675,20 +684,19 @@ class ProductionRepository:
 
 
     def _replace_check_entries(self, session: Session, op_id: int, entries: Iterable[CheckEntryDTO], station_id: str, now: datetime) -> bool:
-        provided = {entry.field_key: entry.state for entry in entries if entry.field_key in CHECK_FIELD_KEYS}
+        provided = {entry.field_key: self._check_text(entry.state) for entry in entries if entry.field_key in CHECK_FIELD_KEYS}
         changed = False
         existing = {row.field_key: row for row in session.execute(select(CheckEntryModel).where(CheckEntryModel.op_id == op_id)).scalars()}
         for key in CHECK_FIELD_KEYS:
-            new_state = provided.get(key, existing.get(key).state if key in existing else CheckState.NAO_INFORMADO)
-            new_value = self._coerce_check_state(new_state).value
+            new_value = provided.get(key, self._check_text(existing[key].state) if key in existing else "")
             row = existing.get(key)
             if row is None:
-                if new_value != CheckState.NAO_INFORMADO.value:
+                if new_value:
                     session.add(CheckEntryModel(op_id=op_id, field_key=key, state=new_value, station_id=station_id, updated_at=now))
-                    self._history(session, op_id, "ACOMPANHAMENTO", key, CheckState.NAO_INFORMADO.value, new_value, station_id, now)
+                    self._history(session, op_id, "ACOMPANHAMENTO", key, "", new_value, station_id, now)
                     changed = True
-            elif row.state != new_value:
-                self._history(session, op_id, "ACOMPANHAMENTO", key, row.state, new_value, station_id, now)
+            elif self._check_text(row.state) != new_value:
+                self._history(session, op_id, "ACOMPANHAMENTO", key, self._check_text(row.state), new_value, station_id, now)
                 row.state, row.station_id, row.updated_at = new_value, station_id, now
                 changed = True
         return changed
@@ -713,8 +721,22 @@ class ProductionRepository:
         return coerce_op_status(value)
 
     @staticmethod
-    def _coerce_check_state(value: CheckState | str) -> CheckState:
-        return coerce_check_state(value)
+    def _check_text(value: CheckState | str | object) -> str:
+        """Converte os três valores fechados legados em texto legível.
+
+        Novas anotações são preservadas integralmente e podem conter qualquer
+        texto útil para quem acompanha a OP.
+        """
+
+        if isinstance(value, CheckState):
+            raw = value.value
+        else:
+            raw = str(value or "").strip()
+        return {
+            CheckState.NAO_INFORMADO.value: "Não informado",
+            CheckState.SIM.value: "Sim",
+            CheckState.NAO.value: "Não",
+        }.get(raw, raw)
 
     def _validate_form(self, form: OpFormDTO) -> None:
         number = str(form.numero_op or "").strip()
@@ -829,23 +851,198 @@ class ProductionRepository:
         return value
 
     @staticmethod
-    def _sector_key(value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
-        return "".join(char for char in normalized if char.isalnum() and not unicodedata.combining(char))
-
-    @staticmethod
     def _color_or_default(color: str | None, *, default: str = "#475569") -> str:
         value = str(color or "").strip()
         if len(value) == 7 and value.startswith("#"):
             return value.lower()
         return default
 
+    # ------------------------------------------------------------------
+    # Lembretes da TV / Foco (op_reminders)
+    # ------------------------------------------------------------------
+    @_retry_if_database_busy
+    def create_reminder(self, form: OpReminderFormDTO, *, station_id: str) -> OpReminderDTO:
+        with self.database.write_session() as session:
+            reminder_id = str(uuid4())
+            model = OpReminderModel(
+                id=reminder_id,
+                op_id=form.op_id,
+                numero_op=str(form.numero_op or "").strip(),
+                cliente=str(form.cliente or "").strip(),
+                modelo=str(form.modelo or "").strip(),
+                mensagem=str(form.mensagem or "").strip(),
+                data_inicio=form.data_inicio,
+                data_fim=form.data_fim,
+                horario=str(form.horario or "10:00").strip(),
+                duracao_segundos=max(5, int(form.duracao_segundos or 30)),
+                tipo_recorrencia=str(form.tipo_recorrencia or "ONCE"),
+                dias_semana=json.dumps(list(form.dias_semana or [])),
+                ativo=bool(form.ativo),
+                created_by_station=station_id,
+            )
+            session.add(model)
+            session.flush()
+            return self._to_reminder_dto(model)
+
+    @_retry_if_database_busy
+    def update_reminder(self, reminder_id: str, form: OpReminderFormDTO, *, station_id: str) -> OpReminderDTO:
+        with self.database.write_session() as session:
+            model = session.get(OpReminderModel, reminder_id)
+            if not model:
+                raise ValueError(f"Lembrete {reminder_id} não encontrado.")
+            model.op_id = form.op_id
+            model.numero_op = str(form.numero_op or "").strip()
+            model.cliente = str(form.cliente or "").strip()
+            model.modelo = str(form.modelo or "").strip()
+            model.mensagem = str(form.mensagem or "").strip()
+            model.data_inicio = form.data_inicio
+            model.data_fim = form.data_fim
+            model.horario = str(form.horario or "10:00").strip()
+            model.duracao_segundos = max(5, int(form.duracao_segundos or 30))
+            model.tipo_recorrencia = str(form.tipo_recorrencia or "ONCE")
+            model.dias_semana = json.dumps(list(form.dias_semana or []))
+            model.ativo = bool(form.ativo)
+            session.flush()
+            return self._to_reminder_dto(model)
+
+    @_retry_if_database_busy
+    def delete_reminder(self, reminder_id: str) -> bool:
+        with self.database.write_session() as session:
+            model = session.get(OpReminderModel, reminder_id)
+            if not model:
+                return False
+            session.delete(model)
+            return True
+
+    @_retry_if_database_busy
+    def toggle_reminder(self, reminder_id: str) -> OpReminderDTO | None:
+        with self.database.write_session() as session:
+            model = session.get(OpReminderModel, reminder_id)
+            if not model:
+                return None
+            model.ativo = not model.ativo
+            session.flush()
+            return self._to_reminder_dto(model)
+
+    def list_reminders(self, active_only: bool = False) -> list[OpReminderDTO]:
+        with self.database.session() as session:
+            stmt = select(OpReminderModel)
+            if active_only:
+                stmt = stmt.where(OpReminderModel.ativo.is_(True))
+            stmt = stmt.order_by(OpReminderModel.horario.asc(), OpReminderModel.created_at.desc())
+            return [self._to_reminder_dto(row) for row in session.execute(stmt).scalars()]
+
     @staticmethod
-    def _contrast_text_color(background: str) -> str:
-        value = str(background or "#475569").lstrip("#")
+    def _to_reminder_dto(model: OpReminderModel) -> OpReminderDTO:
         try:
-            red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
-        except (ValueError, IndexError):
-            return "#ffffff"
-        luminance = (red * 299 + green * 587 + blue * 114) / 1000
-        return "#111827" if luminance > 150 else "#ffffff"
+            dias = tuple(json.loads(model.dias_semana or "[]"))
+        except Exception:
+            dias = ()
+        return OpReminderDTO(
+            id=model.id,
+            mensagem=model.mensagem,
+            horario=model.horario,
+            op_id=model.op_id,
+            numero_op=model.numero_op,
+            cliente=model.cliente,
+            modelo=model.modelo,
+            data_inicio=model.data_inicio,
+            data_fim=model.data_fim,
+            duracao_segundos=model.duracao_segundos,
+            tipo_recorrencia=model.tipo_recorrencia,
+            dias_semana=dias,
+            ativo=model.ativo,
+            created_by_station=model.created_by_station,
+            created_at=model.created_at,
+            updated_at=model.updated_at,
+        )
+
+    def find_conflicting_reminder(
+        self,
+        horario: str,
+        duracao_segundos: int,
+        dias_semana: Iterable[str] = (),
+        data: date | None = None,
+        exclude_id: str | None = None,
+    ) -> OpReminderDTO | None:
+        target_start = self._time_to_seconds(horario)
+        target_end = target_start + max(5, int(duracao_segundos))
+        target_days = {d.lower() for d in dias_semana}
+
+        reminders = self.list_reminders(active_only=True)
+        for r in reminders:
+            if exclude_id and r.id == exclude_id:
+                continue
+            if not self._days_overlap(r, target_days, data):
+                continue
+            r_start = self._time_to_seconds(r.horario)
+            r_end = r_start + r.duracao_segundos
+            if max(target_start, r_start) < min(target_end, r_end):
+                return r
+        return None
+
+    def suggest_next_available_time(
+        self,
+        horario: str,
+        duracao_segundos: int,
+        dias_semana: Iterable[str] = (),
+        data: date | None = None,
+    ) -> str:
+        conflict = self.find_conflicting_reminder(horario, duracao_segundos, dias_semana, data)
+        if not conflict:
+            return horario
+
+        current_seconds = self._time_to_seconds(conflict.horario) + conflict.duracao_segundos
+        current_minute = (current_seconds + 59) // 60
+        max_minutes = 23 * 60 + 59
+
+        while current_minute <= max_minutes:
+            candidate_time = f"{current_minute // 60:02d}:{current_minute % 60:02d}"
+            c = self.find_conflicting_reminder(candidate_time, duracao_segundos, dias_semana, data)
+            if not c:
+                return candidate_time
+            current_seconds = self._time_to_seconds(c.horario) + c.duracao_segundos
+            current_minute = (current_seconds + 59) // 60
+
+        return "23:59"
+
+    @staticmethod
+    def _time_to_seconds(hh_mm: str) -> int:
+        try:
+            parts = str(hh_mm or "10:00").strip().split(":")
+            h = int(parts[0])
+            m = int(parts[1]) if len(parts) > 1 else 0
+            return (h * 60 + m) * 60
+        except Exception:
+            return 10 * 3600
+
+    @staticmethod
+    def _days_overlap(reminder: OpReminderDTO, target_days: set[str], target_date: date | None) -> bool:
+        weekdays_set = {"monday", "tuesday", "wednesday", "thursday", "friday"}
+        all_days_set = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+        def get_days(r: OpReminderDTO) -> set[str]:
+            if r.tipo_recorrencia == "DAILY":
+                return all_days_set
+            if r.tipo_recorrencia == "WEEKDAYS":
+                return weekdays_set
+            if r.tipo_recorrencia == "CUSTOM":
+                return {d.lower() for d in r.dias_semana}
+            if r.tipo_recorrencia == "ONCE":
+                if r.data_inicio:
+                    idx = r.data_inicio.weekday()
+                    names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                    return {names[idx]}
+                return all_days_set
+            return all_days_set
+
+        r_days = get_days(reminder)
+        resolved_target_days = target_days
+        if not resolved_target_days and target_date:
+            idx = target_date.weekday()
+            names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            resolved_target_days = {names[idx]}
+        if not resolved_target_days:
+            resolved_target_days = all_days_set
+
+        return bool(r_days & resolved_target_days)

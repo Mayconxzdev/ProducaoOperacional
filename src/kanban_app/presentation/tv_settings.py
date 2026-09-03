@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from math import floor
 import re
 
+from kanban_app.domain.enums import OP_STATUS_LABELS
+
 
 TV_COLUMNS = (
     ("op", "OP", "OP"),
@@ -70,13 +72,7 @@ TV_DEFAULT_FORMATS = {key: "text" for key in TV_COLUMN_KEYS}
 TV_DEFAULT_FORMATS.update({"inicio": "dd/MM/yy", "entrega": "dd/MM/yy"})
 TV_DEFAULT_HEADERS = dict(TV_COLUMN_LABELS)
 TV_DEFAULT_HEADERS.update({"voltagem": "V", "quantidade": "Qtd."})
-TV_DEFAULT_STATUS_LABELS = {
-    "PRIORIDADE": "Prioridade",
-    "EM_ATRASO": "Em atraso",
-    "EM_DIA": "Em dia",
-    "AGUARDANDO": "Aguardando",
-    "CONCLUIDO": "Concluído",
-}
+TV_DEFAULT_STATUS_LABELS = {status.value: label for status, label in OP_STATUS_LABELS.items()}
 
 _ALIGNMENT_VALUES = {"left", "center", "right"}
 _DATE_FORMAT_VALUES = {"dd/MM/yyyy", "dd/MM/yy", "dd/MM"}
@@ -108,6 +104,14 @@ def default_tv_settings() -> dict[str, object]:
         "header_foreground": "#ffffff",
         "screen_background": "#0f172a",
         "grid_color": "#10233d",
+        "reminder_enabled": True,
+        "reminder_card_background": "#0f172a",
+        "reminder_card_foreground": "#f8fafc",
+        "reminder_card_border": "#38bdf8",
+        "reminder_font_scale_percent": 100,
+        "reminder_width_percent": 65,
+        "reminder_pause_pagination": True,
+        "reminder_default_duration_seconds": 30,
     }
 
 
@@ -213,6 +217,14 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
         "header_foreground": color("header_foreground"),
         "screen_background": color("screen_background"),
         "grid_color": color("grid_color"),
+        "reminder_enabled": boolean("reminder_enabled"),
+        "reminder_card_background": color("reminder_card_background"),
+        "reminder_card_foreground": color("reminder_card_foreground"),
+        "reminder_card_border": color("reminder_card_border"),
+        "reminder_font_scale_percent": number("reminder_font_scale_percent", 60, 200),
+        "reminder_width_percent": number("reminder_width_percent", 30, 95),
+        "reminder_pause_pagination": boolean("reminder_pause_pagination"),
+        "reminder_default_duration_seconds": number("reminder_default_duration_seconds", 5, 300),
     }
 
 

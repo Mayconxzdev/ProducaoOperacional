@@ -1,5 +1,12 @@
 # Histórico de versões
 
+## [2.4.1] - 2026-07-27
+
+- O Check Acompanhamento passou a aceitar texto livre em todos os itens, preservando valores antigos como “Sim”, “Não” e “Não informado” ao abrir OPs já cadastradas.
+- Os caminhos, grupos, formatos, dias e horários da integração passaram a ser uma regra compartilhada no banco central: qualquer PC pode alterá-los, e a estação integradora aberta aplica a agenda atualizada localmente sem executar varreduras extras.
+- Ativar a integração de OPs na Personalização agora cria ou atualiza diretamente a Tarefa Agendada do Windows, sem exigir reinstalação; a tela informa de forma explícita se a tarefa está ativa, ausente ou desativada.
+- O setup preserva configurações existentes e, quando necessário, acrescenta somente o bloco de integração a instalações antigas, sem sobrescrever banco, SMTP ou preferências locais.
+
 ## [2.4.0] - 2026-07-23
 
 - Adicionada integração automática opcional de novas OPs do NAS, com dias, horários, raízes, pastas/grupos e formatos monitorados configuráveis na Personalização e execução por Tarefa Agendada do Windows.

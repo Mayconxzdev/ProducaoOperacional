@@ -27,25 +27,12 @@ from PySide6.QtWidgets import (
 )
 
 from kanban_app.application.dto import CheckEntryDTO, OpDetailDTO, OpFormDTO, SectorDTO
-from kanban_app.domain.enums import CheckState, OpStatus
+from kanban_app.domain.enums import OP_STATUS_LABELS, OpStatus
 from kanban_app.domain.option_lists import CHECK_GROUPS
 from kanban_app.formatting import format_br_date, normalize_voltage_value, parse_br_date
 
 
-STATUS_LABELS = {
-    OpStatus.PRIORIDADE: "Prioridade",
-    OpStatus.EM_ATRASO: "Em atraso",
-    OpStatus.EM_DIA: "Em dia",
-    OpStatus.AGUARDANDO: "Aguardando",
-    OpStatus.CONCLUIDO: "Concluído",
-}
-CHECK_LABELS = {
-    CheckState.NAO_INFORMADO: "Não informado",
-    CheckState.SIM: "Sim",
-    CheckState.NAO: "Não",
-}
-
-
+STATUS_LABELS = OP_STATUS_LABELS
 class FlexibleDateInput(QWidget):
     """Campo de data brasileiro que aceita digitação com ou sem barras."""
 
@@ -144,6 +131,8 @@ class OpFormDialog(QDialog):
         voltages: list[str],
         initial: OpDetailDTO | OpFormDTO | None = None,
         read_only: bool = False,
+        repository=None,
+        station_id: str = "",
         parent=None,
     ):
         super().__init__(parent)
@@ -152,6 +141,9 @@ class OpFormDialog(QDialog):
         self.setMinimumSize(720, 640)
         self._sectors = sectors
         self._read_only = read_only
+        self._repository = repository
+        self._station_id = station_id
+        self._initial = initial
         self._build_identity_tab(voltages)
         self._build_check_tab()
         self.tabs = QTabWidget(self)
@@ -201,7 +193,20 @@ class OpFormDialog(QDialog):
             self.status_combo.addItem(label, status)
         self.pending_edit = QPlainTextEdit(self)
         self.pending_edit.setPlaceholderText("Pendência interna, opcional")
-        self.pending_edit.setFixedHeight(100)
+        self.pending_edit.setFixedHeight(85)
+
+        pending_container = QWidget(self)
+        p_layout = QVBoxLayout(pending_container)
+        p_layout.setContentsMargins(0, 0, 0, 0)
+        p_layout.setSpacing(6)
+        p_layout.addWidget(self.pending_edit)
+
+        self.btn_reminder = QPushButton("⏰ Agendar Lembrete na TV a partir desta pendência", pending_container)
+        self.btn_reminder.setStyleSheet("text-align: left; padding: 4px 8px; color: #38bdf8; font-weight: bold;")
+        self.btn_reminder.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_reminder.clicked.connect(self._open_reminder_dialog)
+        p_layout.addWidget(self.btn_reminder)
+
         form.addRow("Número da OP", self.number_edit)
         form.addRow("Cliente", self.client_edit)
         form.addRow("Modelo", self.model_edit)
@@ -211,7 +216,7 @@ class OpFormDialog(QDialog):
         form.addRow("Prazo de entrega", self.delivery_date)
         form.addRow("Setor", self.sector_combo)
         form.addRow("Status", self.status_combo)
-        form.addRow("Pendência", self.pending_edit)
+        form.addRow("Pendência", pending_container)
 
     def _build_check_tab(self) -> None:
         self._check_tab = QWidget(self)
@@ -224,8 +229,8 @@ class OpFormDialog(QDialog):
         layout.addWidget(title)
 
         note = QLabel(
-            "Use ‘Não informado’ enquanto o item ainda não foi conferido. "
-            "Este check não altera status, prazo, cores, TV/Foco ou alertas.",
+            "Preencha cada item com o texto que fizer sentido para a OP, por exemplo “comprado”, “aguardando fornecedor” "
+            "ou uma data. Estas anotações não alteram status, prazo, cores, TV/Foco ou alertas.",
             self._check_tab,
         )
         note.setObjectName("helpText")
@@ -242,13 +247,8 @@ class OpFormDialog(QDialog):
         content_layout.setContentsMargins(0, 0, 4, 0)
         content_layout.setSpacing(10)
 
-        self._check_inputs: dict[str, QComboBox] = {}
+        self._check_inputs: dict[str, QLineEdit] = {}
         self._check_groups: list[QGroupBox] = []
-        state_tooltips = {
-            CheckState.NAO_INFORMADO: "Ainda não conferido ou não preenchido.",
-            CheckState.SIM: "Item conferido e disponível/concluído.",
-            CheckState.NAO: "Item conferido e ainda não disponível/concluído.",
-        }
 
         for group_name, fields in CHECK_GROUPS.items():
             group = QGroupBox(group_name, content)
@@ -272,19 +272,16 @@ class OpFormDialog(QDialog):
                 label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
 
                 key = f"{group_name}:{field}"
-                combo = QComboBox(group)
-                combo.setMinimumWidth(170)
-                combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-                combo.setAccessibleName(f"{group_name} - {field}")
-                combo.setToolTip("Selecione Não informado, Sim ou Não.")
-                for state, state_label in CHECK_LABELS.items():
-                    combo.addItem(state_label, state)
-                    item_index = combo.count() - 1
-                    combo.setItemData(item_index, state_tooltips[state], Qt.ItemDataRole.ToolTipRole)
+                editor = QLineEdit(group)
+                editor.setMinimumWidth(170)
+                editor.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                editor.setAccessibleName(f"{group_name} - {field}")
+                editor.setPlaceholderText("Texto livre")
+                editor.setToolTip("Digite qualquer anotação útil para acompanhar este item.")
 
-                self._check_inputs[key] = combo
+                self._check_inputs[key] = editor
                 grid.addWidget(label, row, label_column)
-                grid.addWidget(combo, row, input_column)
+                grid.addWidget(editor, row, input_column)
 
             self._check_groups.append(group)
             content_layout.addWidget(group)
@@ -315,13 +312,13 @@ class OpFormDialog(QDialog):
         self._set_combo_data(self.status_combo, initial.status)
         self.pending_edit.setPlainText(initial.pendencia)
         entries = {entry.field_key: entry for entry in getattr(initial, "acompanhamento", ())}
-        for key, combo in self._check_inputs.items():
-            self._set_combo_data(combo, entries.get(key, CheckEntryDTO(key)).state)
+        for key, editor in self._check_inputs.items():
+            editor.setText(entries.get(key, CheckEntryDTO(key)).state)
 
     def form_value(self) -> OpFormDTO:
         quantity_text = self.quantity_edit.text().strip()
         quantity = int(quantity_text) if quantity_text else None
-        checks = tuple(CheckEntryDTO(field_key=key, state=self._enum_value(CheckState, combo.currentData())) for key, combo in self._check_inputs.items())
+        checks = tuple(CheckEntryDTO(field_key=key, state=editor.text().strip()) for key, editor in self._check_inputs.items())
         return OpFormDTO(
             numero_op=self.number_edit.text().strip(),
             cliente=self.client_edit.text().strip(),
@@ -378,3 +375,40 @@ class OpFormDialog(QDialog):
     @staticmethod
     def _enum_value(enum_type, value):
         return value if isinstance(value, enum_type) else enum_type(str(value))
+
+    def _open_reminder_dialog(self) -> None:
+        if not self._repository:
+            QMessageBox.information(
+                self, "Lembrete na TV", "O banco de dados não está acessível no momento."
+            )
+            return
+
+        from types import SimpleNamespace
+        from kanban_app.presentation.widgets.op_reminder_dialog import OpReminderDialog
+
+        num = self.number_edit.text().strip()
+        cliente = self.client_edit.text().strip()
+        modelo = self.model_edit.text().strip()
+        pendencia = self.pending_edit.toPlainText().strip()
+        op_id = getattr(self._initial, "id", None) if self._initial else None
+
+        temp_op = SimpleNamespace(
+            id=op_id,
+            numero_op=num,
+            cliente=cliente,
+            modelo=modelo,
+            pendencia=pendencia,
+        )
+
+        dialog = OpReminderDialog(
+            self,
+            repository=self._repository,
+            station_id=self._station_id,
+            op=temp_op,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            QMessageBox.information(
+                self,
+                "Lembrete Agendado",
+                "O lembrete foi salvo e programado com sucesso para exibição na TV!",
+            )
