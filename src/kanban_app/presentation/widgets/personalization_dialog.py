@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from kanban_app import __version__
 from kanban_app.application.dto import OpListDTO, OpReminderDTO, SectorDTO
+from kanban_app.presentation.sound_alert import SOUND_TYPE_LABELS, play_alert_sound
 from kanban_app.presentation.widgets.op_reminder_dialog import OpReminderDialog
 from kanban_app.infrastructure.config import (
     AppConfig,
@@ -951,6 +952,27 @@ class PersonalizationDialog(QDialog):
         self.reminder_pause_pagination.setChecked(bool(settings.get("reminder_pause_pagination", True)))
         form.addRow(self.reminder_pause_pagination)
 
+        self.reminder_sound_enabled = QCheckBox("Emitir alerta sonoro suave na TV (HDMI) ao exibir lembrete", style_group)
+        self.reminder_sound_enabled.setChecked(bool(settings.get("reminder_sound_enabled", True)))
+        form.addRow(self.reminder_sound_enabled)
+
+        sound_row = QHBoxLayout()
+        self.reminder_sound_type = QComboBox(style_group)
+        for s_key, s_label in SOUND_TYPE_LABELS.items():
+            self.reminder_sound_type.addItem(s_label, s_key)
+        current_sound = str(settings.get("reminder_sound_type", "chime"))
+        idx = self.reminder_sound_type.findData(current_sound)
+        if idx >= 0:
+            self.reminder_sound_type.setCurrentIndex(idx)
+
+        btn_test_sound = QPushButton("🔊 Ouvir Som", style_group)
+        btn_test_sound.setToolTip("Toca o som de alerta agora para ajustar o volume da TV HDMI")
+        btn_test_sound.clicked.connect(lambda: play_alert_sound(self.reminder_sound_type.currentData()))
+
+        sound_row.addWidget(self.reminder_sound_type, 1)
+        sound_row.addWidget(btn_test_sound)
+        form.addRow("Tipo de alerta sonoro", sound_row)
+
         left_layout.addWidget(style_group)
 
         test_box = QVBoxLayout()
@@ -1592,6 +1614,8 @@ class PersonalizationDialog(QDialog):
             "reminder_width_percent": self.reminder_width.value() if hasattr(self, "reminder_width") else int(self._initial_tv_settings.get("reminder_width_percent", 65)),
             "reminder_pause_pagination": self.reminder_pause_pagination.isChecked() if hasattr(self, "reminder_pause_pagination") else bool(self._initial_tv_settings.get("reminder_pause_pagination", True)),
             "reminder_default_duration_seconds": self.reminder_default_duration.value() if hasattr(self, "reminder_default_duration") else int(self._initial_tv_settings.get("reminder_default_duration_seconds", 30)),
+            "reminder_sound_enabled": self.reminder_sound_enabled.isChecked() if hasattr(self, "reminder_sound_enabled") else bool(self._initial_tv_settings.get("reminder_sound_enabled", True)),
+            "reminder_sound_type": self.reminder_sound_type.currentData() if hasattr(self, "reminder_sound_type") else str(self._initial_tv_settings.get("reminder_sound_type", "chime")),
         }
         return normalize_tv_settings(values)
 

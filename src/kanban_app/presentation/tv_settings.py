@@ -112,6 +112,8 @@ def default_tv_settings() -> dict[str, object]:
         "reminder_width_percent": 65,
         "reminder_pause_pagination": True,
         "reminder_default_duration_seconds": 30,
+        "reminder_sound_enabled": True,
+        "reminder_sound_type": "chime",
     }
 
 
@@ -225,6 +227,8 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
         "reminder_width_percent": number("reminder_width_percent", 30, 95),
         "reminder_pause_pagination": boolean("reminder_pause_pagination"),
         "reminder_default_duration_seconds": number("reminder_default_duration_seconds", 5, 300),
+        "reminder_sound_enabled": boolean("reminder_sound_enabled"),
+        "reminder_sound_type": str(values.get("reminder_sound_type", defaults["reminder_sound_type"])),
     }
 
 

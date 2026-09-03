@@ -7,6 +7,7 @@ from PySide6.QtCore import QTime, QTimer, Qt, Signal
 from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QStackedLayout, QVBoxLayout, QWidget
 
 from kanban_app.application.dto import OpListDTO, OpReminderDTO
+from kanban_app.presentation.sound_alert import play_alert_sound
 from kanban_app.presentation.tv_settings import normalize_tv_settings
 from kanban_app.presentation.widgets.op_list_view_widget import OpListViewWidget
 
@@ -500,6 +501,8 @@ class TvFocusWindow(QWidget):
             width_percent=int(self._settings.get("reminder_width_percent", 65)),
         )
         self.reminder_overlay.sync_reminders(list(self._active_reminders.values()))
+        if self._settings.get("reminder_sound_enabled", True):
+            play_alert_sound(str(self._settings.get("reminder_sound_type", "chime")))
 
     def _check_reminders_tick(self) -> None:
         # 1. Decrementa contadores dos lembretes atualmente ativos
@@ -513,6 +516,7 @@ class TvFocusWindow(QWidget):
             self._active_reminders.pop(r_id, None)
 
         # 2. Verifica se novos lembretes devem disparar no minuto atual
+        newly_triggered = False
         if self._settings.get("reminder_enabled", True) and self._reminders:
             now_time = QTime.currentTime().toString("HH:mm")
             today = date.today()
@@ -543,6 +547,10 @@ class TvFocusWindow(QWidget):
                         "dto": r,
                         "remaining": max(5, r.duracao_segundos),
                     }
+                    newly_triggered = True
+
+        if newly_triggered and self._settings.get("reminder_sound_enabled", True):
+            play_alert_sound(str(self._settings.get("reminder_sound_type", "chime")))
 
         # 3. Atualiza os cards visíveis ou oculta o overlay quando terminar
         if self._active_reminders:
