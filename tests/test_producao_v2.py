@@ -1209,24 +1209,31 @@ def test_tv_reminder_overlay_rendering(qtbot, tmp_path: Path):
 
 
 def test_sound_alert_generation_and_playback():
-    from kanban_app.presentation.sound_alert import SOUND_TYPE_LABELS, _generate_wav, play_alert_sound
+    from kanban_app.presentation.sound_alert import (
+        SOUND_TYPE_LABELS,
+        _resolve_sound_file,
+        play_alert_sound,
+    )
 
-    assert "chime" in SOUND_TYPE_LABELS
-    assert "bell" in SOUND_TYPE_LABELS
+    assert "defesa_civil" in SOUND_TYPE_LABELS
+    assert "sino_suave" in SOUND_TYPE_LABELS
+    assert "sineta_discreta" in SOUND_TYPE_LABELS
     assert "windows" in SOUND_TYPE_LABELS
 
-    wav_chime = _generate_wav("chime")
-    assert wav_chime.startswith(b"RIFF")
-    assert b"WAVE" in wav_chime[:16]
-    assert len(wav_chime) > 10000
+    # Verifica resolução de arquivo físico no disco
+    sound_file = _resolve_sound_file("defesa_civil")
+    assert sound_file is not None
+    assert sound_file.is_file()
+    assert sound_file.stat().st_size > 10000
 
-    wav_bell = _generate_wav("bell")
-    assert wav_bell.startswith(b"RIFF")
-    assert len(wav_bell) > 10000
-
+    # Chamada sem exceção em ambiente de teste para todas as opções
+    play_alert_sound("defesa_civil")
+    play_alert_sound("sino_suave")
+    play_alert_sound("sineta_discreta")
+    play_alert_sound("windows")
+    # Compatibilidade com chaves legadas
     play_alert_sound("chime")
     play_alert_sound("bell")
-    play_alert_sound("windows")
 
 
 def test_tv_settings_include_sound_alert_configuration():
@@ -1234,8 +1241,8 @@ def test_tv_settings_include_sound_alert_configuration():
 
     defaults = default_tv_settings()
     assert defaults["reminder_sound_enabled"] is True
-    assert defaults["reminder_sound_type"] == "chime"
+    assert defaults["reminder_sound_type"] == "defesa_civil"
 
-    custom = normalize_tv_settings({"reminder_sound_enabled": False, "reminder_sound_type": "bell"})
+    custom = normalize_tv_settings({"reminder_sound_enabled": False, "reminder_sound_type": "sino_suave"})
     assert custom["reminder_sound_enabled"] is False
-    assert custom["reminder_sound_type"] == "bell"
+    assert custom["reminder_sound_type"] == "sino_suave"

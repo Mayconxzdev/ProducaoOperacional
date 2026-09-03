@@ -113,7 +113,7 @@ def default_tv_settings() -> dict[str, object]:
         "reminder_pause_pagination": True,
         "reminder_default_duration_seconds": 30,
         "reminder_sound_enabled": True,
-        "reminder_sound_type": "chime",
+        "reminder_sound_type": "defesa_civil",
     }
 
 
