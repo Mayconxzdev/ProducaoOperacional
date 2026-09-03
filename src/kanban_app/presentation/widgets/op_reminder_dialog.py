@@ -261,10 +261,10 @@ class OpReminderDialog(QDialog):
             sugestao = self.repository.suggest_next_available_time(
                 horario, duracao, dias_semana=dias, data=target_date
             )
-            self._suggested_time = sugestao
             self.conflict_label.setText(
-                f"⚠️ Atenção: Já existe outro lembrete ativo no horário {conflict.horario} "
-                f"(OP {conflict.numero_op or 'Geral'} - {conflict.duracao_segundos}s)."
+                f"ℹ️ Já existe lembrete ativo às {conflict.horario} (OP {conflict.numero_op or 'Geral'} - {conflict.duracao_segundos}s).\n"
+                f"Se salvar neste horário, ambos serão exibidos lado a lado na TV em grade simultânea.\n"
+                f"Caso prefira exibir isoladamente, clique no botão abaixo para usar o próximo horário livre."
             )
             self.btn_recommend.setText(f"💡 Usar próximo horário livre: {sugestao}")
             self.conflict_frame.setVisible(True)

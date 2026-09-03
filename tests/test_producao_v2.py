@@ -1180,15 +1180,29 @@ def test_tv_reminder_overlay_rendering(qtbot, tmp_path: Path):
     assert hasattr(tv, "reminder_overlay")
     assert not tv.reminder_overlay.isVisible()
 
-    # Dispara lembrete de teste
-    tv.trigger_test_reminder(duration_seconds=5)
+    # 1. Dispara lembrete único de teste
+    tv.trigger_test_reminder(duration_seconds=5, count=1)
     assert tv.reminder_overlay.isVisible()
     assert "5320" in tv.reminder_overlay.header_title.text()
     assert tv.reminder_overlay.card.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 1
 
     # Simula tick regressivo
     tv._check_reminders_tick()
     assert tv._remaining_reminder_seconds == 4
+
+    # 2. Dispara 2 lembretes simultâneos (lado a lado)
+    tv.trigger_test_reminder(duration_seconds=5, count=2)
+    assert tv.reminder_overlay.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 2
+    assert tv.reminder_overlay.grid_layout.columnCount() == 2
+
+    # 3. Dispara 6 lembretes simultâneos (grade 3x2)
+    tv.trigger_test_reminder(duration_seconds=5, count=6)
+    assert tv.reminder_overlay.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 6
+    assert tv.reminder_overlay.grid_layout.columnCount() == 3
+    assert tv.reminder_overlay.grid_layout.rowCount() == 2
 
     tv._timer.stop()
     tv._reminder_checker.stop()

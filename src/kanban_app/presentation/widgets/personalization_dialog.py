@@ -953,10 +953,29 @@ class PersonalizationDialog(QDialog):
 
         left_layout.addWidget(style_group)
 
-        btn_test_reminder = QPushButton("👁️ Testar Lembrete na TV Agora", left_panel)
-        btn_test_reminder.setStyleSheet("font-weight: bold; background: #0284c7; color: white; padding: 8px 12px; border-radius: 6px;")
-        btn_test_reminder.clicked.connect(self._test_reminder_on_tv)
-        left_layout.addWidget(btn_test_reminder)
+        test_box = QVBoxLayout()
+        test_label = QLabel("Visualização rápida na TV:", left_panel)
+        test_label.setStyleSheet("font-weight: bold; color: #64748b; margin-top: 4px;")
+        test_box.addWidget(test_label)
+
+        test_btns = QHBoxLayout()
+        btn_test_reminder = QPushButton("👁️ 1 Card", left_panel)
+        btn_test_reminder.setStyleSheet("font-weight: bold; background: #0284c7; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_reminder.clicked.connect(lambda: self._test_reminder_on_tv(count=1))
+
+        btn_test_multiple = QPushButton("👥 2 Lado a Lado", left_panel)
+        btn_test_multiple.setStyleSheet("font-weight: bold; background: #0369a1; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_multiple.clicked.connect(lambda: self._test_reminder_on_tv(count=2))
+
+        btn_test_grid = QPushButton("▦ 6 em Grade (3x2)", left_panel)
+        btn_test_grid.setStyleSheet("font-weight: bold; background: #075985; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_grid.clicked.connect(lambda: self._test_reminder_on_tv(count=6))
+
+        test_btns.addWidget(btn_test_reminder)
+        test_btns.addWidget(btn_test_multiple)
+        test_btns.addWidget(btn_test_grid)
+        test_box.addLayout(test_btns)
+        left_layout.addLayout(test_box)
         left_layout.addStretch(1)
 
         splitter.addWidget(left_panel)
@@ -1080,13 +1099,13 @@ class PersonalizationDialog(QDialog):
         self.repository.delete_reminder(reminder.id)
         self._load_reminders_table()
 
-    def _test_reminder_on_tv(self) -> None:
+    def _test_reminder_on_tv(self, count: int = 1) -> None:
         if hasattr(self, "tv_preview") and self.tv_preview:
             self.tv_preview.apply_settings(self._current_tv_settings())
-            self.tv_preview.trigger_test_reminder(duration_seconds=8)
+            self.tv_preview.trigger_test_reminder(duration_seconds=8, count=count)
         if hasattr(self, "_large_preview") and self._large_preview and self._large_preview.isVisible():
             self._large_preview.apply_settings(self._current_tv_settings())
-            self._large_preview.trigger_test_reminder(duration_seconds=8)
+            self._large_preview.trigger_test_reminder(duration_seconds=8, count=count)
 
     # ------------------------------------------------------------------
     # E-mail e diagnóstico

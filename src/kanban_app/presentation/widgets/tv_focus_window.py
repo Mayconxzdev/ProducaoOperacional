@@ -4,108 +4,47 @@ from datetime import date
 from math import ceil
 
 from PySide6.QtCore import QTime, QTimer, Qt, Signal
-from PySide6.QtWidgets import QFrame, QLabel, QStackedLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QStackedLayout, QVBoxLayout, QWidget
 
 from kanban_app.application.dto import OpListDTO, OpReminderDTO
 from kanban_app.presentation.tv_settings import normalize_tv_settings
 from kanban_app.presentation.widgets.op_list_view_widget import OpListViewWidget
 
 
-class TvReminderOverlay(QWidget):
-    """Card modal de destaque flutuante que aparece no centro da TV por cima da lista."""
+class TvReminderCard(QFrame):
+    """Card individual de lembrete exibido dentro da grade do overlay."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setObjectName("tvReminderOverlay")
-        self.setVisible(False)
+        self.setObjectName("tvReminderCard")
 
-        self.setStyleSheet("QWidget#tvReminderOverlay { background: rgba(0, 0, 0, 0.75); }")
+        card_layout = QVBoxLayout(self)
+        card_layout.setContentsMargins(24, 20, 24, 20)
+        card_layout.setSpacing(8)
 
-        root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(40, 40, 40, 40)
-        root_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        self.card = QFrame(self)
-        self.card.setObjectName("tvReminderCard")
-
-        card_layout = QVBoxLayout(self.card)
-        card_layout.setContentsMargins(36, 28, 36, 28)
-        card_layout.setSpacing(14)
-
-        self.header_title = QLabel("🚨 LEMBRETE OPERACIONAL", self.card)
+        self.header_title = QLabel("🚨 LEMBRETE OPERACIONAL", self)
         self.header_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.header_title.setObjectName("reminderHeaderTitle")
         card_layout.addWidget(self.header_title)
 
-        self.op_info = QLabel("", self.card)
+        self.op_info = QLabel("", self)
         self.op_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.op_info.setObjectName("reminderOpInfo")
         self.op_info.setWordWrap(True)
         card_layout.addWidget(self.op_info)
 
-        self.message_label = QLabel("", self.card)
+        self.message_label = QLabel("", self)
         self.message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.message_label.setObjectName("reminderMessage")
         self.message_label.setWordWrap(True)
-        card_layout.addWidget(self.message_label)
+        card_layout.addWidget(self.message_label, 1)
 
-        self.footer_label = QLabel("", self.card)
+        self.footer_label = QLabel("", self)
         self.footer_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.footer_label.setObjectName("reminderFooter")
         card_layout.addWidget(self.footer_label)
 
-        root_layout.addWidget(self.card)
-
-    def apply_style(
-        self,
-        *,
-        background: str = "#0f172a",
-        foreground: str = "#f8fafc",
-        border_color: str = "#38bdf8",
-        font_scale_percent: int = 100,
-        width_percent: int = 65,
-    ) -> None:
-        scale = font_scale_percent / 100
-        h_pt = max(14, round(22 * scale))
-        info_pt = max(11, round(15 * scale))
-        msg_pt = max(16, round(26 * scale))
-        foot_pt = max(10, round(13 * scale))
-
-        self.card.setStyleSheet(
-            f"QFrame#tvReminderCard {{"
-            f"  background-color: {background};"
-            f"  border: 4px solid {border_color};"
-            f"  border-radius: 14px;"
-            f"}}"
-            f"QLabel#reminderHeaderTitle {{"
-            f"  color: {border_color};"
-            f"  font-size: {h_pt}pt;"
-            f"  font-weight: 900;"
-            f"  letter-spacing: 1px;"
-            f"}}"
-            f"QLabel#reminderOpInfo {{"
-            f"  color: #94a3b8;"
-            f"  font-size: {info_pt}pt;"
-            f"  font-weight: 600;"
-            f"}}"
-            f"QLabel#reminderMessage {{"
-            f"  color: {foreground};"
-            f"  font-size: {msg_pt}pt;"
-            f"  font-weight: 800;"
-            f"  padding: 8px 0;"
-            f"}}"
-            f"QLabel#reminderFooter {{"
-            f"  color: #64748b;"
-            f"  font-size: {foot_pt}pt;"
-            f"  font-weight: 600;"
-            f"}}"
-        )
-        if self.parentWidget():
-            parent_w = max(400, self.parentWidget().width())
-            card_w = max(400, round(parent_w * (width_percent / 100)))
-            self.card.setMaximumWidth(card_w)
-
-    def show_reminder(self, reminder: OpReminderDTO | dict[str, object], remaining_seconds: int) -> None:
+    def set_content(self, reminder: OpReminderDTO | dict[str, object], remaining_seconds: int) -> None:
         if isinstance(reminder, dict):
             num = str(reminder.get("numero_op", ""))
             cliente = str(reminder.get("cliente", ""))
@@ -132,11 +71,195 @@ class TvReminderOverlay(QWidget):
 
         self.message_label.setText(msg)
         self.footer_label.setText(f"Exibindo na TV por mais {remaining_seconds}s...")
+
+    def update_countdown(self, remaining_seconds: int) -> None:
+        self.footer_label.setText(f"Exibindo na TV por mais {remaining_seconds}s...")
+
+    def apply_style(
+        self,
+        *,
+        background: str = "#0f172a",
+        foreground: str = "#f8fafc",
+        border_color: str = "#38bdf8",
+        font_scale_percent: int = 100,
+        factor: float = 1.0,
+    ) -> None:
+        scale = (font_scale_percent / 100) * factor
+        h_pt = max(11, round(20 * scale))
+        info_pt = max(9, round(13 * scale))
+        msg_pt = max(13, round(24 * scale))
+        foot_pt = max(9, round(12 * scale))
+
+        self.setStyleSheet(
+            f"QFrame#tvReminderCard {{"
+            f"  background-color: {background};"
+            f"  border: {max(2, round(4 * factor))}px solid {border_color};"
+            f"  border-radius: {max(8, round(14 * factor))}px;"
+            f"}}"
+            f"QLabel#reminderHeaderTitle {{"
+            f"  color: {border_color};"
+            f"  font-size: {h_pt}pt;"
+            f"  font-weight: 900;"
+            f"  letter-spacing: 1px;"
+            f"}}"
+            f"QLabel#reminderOpInfo {{"
+            f"  color: #94a3b8;"
+            f"  font-size: {info_pt}pt;"
+            f"  font-weight: 600;"
+            f"}}"
+            f"QLabel#reminderMessage {{"
+            f"  color: {foreground};"
+            f"  font-size: {msg_pt}pt;"
+            f"  font-weight: 800;"
+            f"  padding: {max(2, round(6 * factor))}px 0;"
+            f"}}"
+            f"QLabel#reminderFooter {{"
+            f"  color: #64748b;"
+            f"  font-size: {foot_pt}pt;"
+            f"  font-weight: 600;"
+            f"}}"
+        )
+
+
+class TvReminderOverlay(QWidget):
+    """Overlay modal flutuante que exibe um ou múltiplos lembretes organizados em grade na TV."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("tvReminderOverlay")
+        self.setVisible(False)
+
+        self.setStyleSheet("QWidget#tvReminderOverlay { background: rgba(0, 0, 0, 0.78); }")
+
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(32, 32, 32, 32)
+        root_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.grid_container = QWidget(self)
+        self.grid_container.setObjectName("reminderGridContainer")
+        self.grid_layout = QGridLayout(self.grid_container)
+        self.grid_layout.setContentsMargins(0, 0, 0, 0)
+        self.grid_layout.setSpacing(20)
+
+        root_layout.addWidget(self.grid_container, 0, Qt.AlignmentFlag.AlignCenter)
+
+        self._active_cards: dict[str, TvReminderCard] = {}
+        self._style_config: dict[str, object] = {}
+
+    @property
+    def card(self) -> QWidget | None:
+        """Compatibilidade: retorna o primeiro card ativo."""
+        if self._active_cards:
+            return next(iter(self._active_cards.values()))
+        return None
+
+    @property
+    def header_title(self) -> QLabel | None:
+        c = self.card
+        return c.header_title if isinstance(c, TvReminderCard) else None
+
+    @property
+    def message_label(self) -> QLabel | None:
+        c = self.card
+        return c.message_label if isinstance(c, TvReminderCard) else None
+
+    def apply_style(
+        self,
+        *,
+        background: str = "#0f172a",
+        foreground: str = "#f8fafc",
+        border_color: str = "#38bdf8",
+        font_scale_percent: int = 100,
+        width_percent: int = 65,
+    ) -> None:
+        self._style_config = {
+            "background": background,
+            "foreground": foreground,
+            "border_color": border_color,
+            "font_scale_percent": font_scale_percent,
+            "width_percent": width_percent,
+        }
+
+    def sync_reminders(self, items: list[dict[str, object]]) -> None:
+        """Sincroniza os cards visíveis na grade de acordo com os lembretes ativos."""
+        if not items:
+            self.setVisible(False)
+            self._clear_cards()
+            return
+
+        count = len(items)
+        if count == 1:
+            cols = 1
+            factor = 1.0
+            width_ratio = int(self._style_config.get("width_percent", 65)) / 100
+        elif count == 2:
+            cols = 2
+            factor = 0.90
+            width_ratio = 0.92
+        elif count == 3:
+            cols = 3
+            factor = 0.82
+            width_ratio = 0.94
+        elif count == 4:
+            cols = 2
+            factor = 0.80
+            width_ratio = 0.90
+        elif count <= 6:
+            cols = 3  # 3 em cima e 3 embaixo
+            factor = 0.70
+            width_ratio = 0.96
+        else:
+            cols = 3
+            factor = 0.60
+            width_ratio = 0.98
+
+        if self.parentWidget():
+            parent_w = max(400, self.parentWidget().width())
+            parent_h = max(300, self.parentWidget().height())
+            self.grid_container.setMaximumWidth(round(parent_w * width_ratio))
+            self.grid_container.setMaximumHeight(round(parent_h * 0.92))
+
+        self._clear_cards()
+        bg = str(self._style_config.get("background", "#0f172a"))
+        fg = str(self._style_config.get("foreground", "#f8fafc"))
+        bc = str(self._style_config.get("border_color", "#38bdf8"))
+        f_scale = int(self._style_config.get("font_scale_percent", 100))
+
+        for idx, item in enumerate(items):
+            row = idx // cols
+            col = idx % cols
+            card_id = str(item.get("id", idx))
+            card = TvReminderCard(self.grid_container)
+            card.apply_style(
+                background=bg,
+                foreground=fg,
+                border_color=bc,
+                font_scale_percent=f_scale,
+                factor=factor,
+            )
+            card.set_content(item["dto"], int(item.get("remaining", 0)))
+            self.grid_layout.addWidget(card, row, col)
+            self._active_cards[card_id] = card
+
         self.setVisible(True)
         self.raise_()
 
     def update_countdown(self, remaining_seconds: int) -> None:
-        self.footer_label.setText(f"Exibindo na TV por mais {remaining_seconds}s...")
+        """Compatibilidade com chamada simples de contagem regressiva."""
+        for card in self._active_cards.values():
+            card.update_countdown(remaining_seconds)
+
+    def show_reminder(self, reminder: OpReminderDTO | dict[str, object], remaining_seconds: int) -> None:
+        """Compatibilidade retroativa com exibição de um único lembrete."""
+        self.sync_reminders([{"id": "single", "dto": reminder, "remaining": remaining_seconds}])
+
+    def _clear_cards(self) -> None:
+        while self.grid_layout.count():
+            item = self.grid_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+        self._active_cards.clear()
 
 
 class TvFocusWindow(QWidget):
@@ -195,8 +318,7 @@ class TvFocusWindow(QWidget):
         self._metrics_pending = False
         self._last_header_height = 0
         self._reminders: list[OpReminderDTO] = []
-        self._active_reminder: OpReminderDTO | dict[str, object] | None = None
-        self._remaining_reminder_seconds: int = 0
+        self._active_reminders: dict[str, dict[str, object]] = {}
         self._last_triggered_keys: set[str] = set()
 
         compatibility_settings = dict(settings or {})
@@ -286,22 +408,90 @@ class TvFocusWindow(QWidget):
         )
         self._render_page()
 
+    @property
+    def _active_reminder(self) -> OpReminderDTO | dict[str, object] | None:
+        if not self._active_reminders:
+            return None
+        return next(iter(self._active_reminders.values()))["dto"]
+
+    @_active_reminder.setter
+    def _active_reminder(self, val: OpReminderDTO | dict[str, object] | None) -> None:
+        if val is None:
+            self._active_reminders.clear()
+        else:
+            self._active_reminders["default"] = {
+                "id": "default",
+                "dto": val,
+                "remaining": self._remaining_reminder_seconds or 30,
+            }
+
+    @property
+    def _remaining_reminder_seconds(self) -> int:
+        if not self._active_reminders:
+            return 0
+        return max(int(item.get("remaining", 0)) for item in self._active_reminders.values())
+
+    @_remaining_reminder_seconds.setter
+    def _remaining_reminder_seconds(self, val: int) -> None:
+        for item in self._active_reminders.values():
+            item["remaining"] = val
+
     def set_reminders(self, reminders: list[OpReminderDTO]) -> None:
         """Atualiza a lista de lembretes ativos para monitoramento contínuo na TV."""
         self._reminders = list(reminders)
 
-    def trigger_test_reminder(self, duration_seconds: int = 10) -> None:
-        """Dispara imediatamente um lembrete demonstrativo na TV para validação visual."""
-        test_data = {
-            "numero_op": "5320",
-            "cliente": "ELETRICA COMANDO",
-            "modelo": "VESPER PE 300e T4 0,5CV 440V",
-            "mensagem": "Atenção: Conferir pintura e flange quadrado antes de embalar!",
-        }
-        self._active_reminder = test_data
-        self._remaining_reminder_seconds = duration_seconds
+    def trigger_test_reminder(self, duration_seconds: int = 10, count: int = 1) -> None:
+        """Dispara imediatamente um ou múltiplos lembretes demonstrativos na TV para validação visual."""
+        self._active_reminders.clear()
+        samples = [
+            {
+                "numero_op": "5320",
+                "cliente": "ELETRICA COMANDO",
+                "modelo": "PE 300e T4 0.5CV +FLANGE QUADRADO",
+                "mensagem": "HELICE/FLANGE PINTURA",
+            },
+            {
+                "numero_op": "5324",
+                "cliente": "GPC QUIMICA S/A",
+                "modelo": "VECPE 150e T4 0,5 - VOLUTA",
+                "mensagem": "AGUARDANDO MOTOR 440V",
+            },
+            {
+                "numero_op": "5332",
+                "cliente": "RICARDO JANZ",
+                "modelo": "PE 200c M2 0,75CV",
+                "mensagem": "SEPARAR CHAPA INOX 304",
+            },
+            {
+                "numero_op": "5331",
+                "cliente": "SOCER RB INDU",
+                "modelo": "PE 250d T2 1,5CV",
+                "mensagem": "SOLDA FINAL / TESTE BALANCEAMENTO",
+            },
+            {
+                "numero_op": "5334",
+                "cliente": "INDUSTEC",
+                "modelo": "PE 400c M4 0,5 CV",
+                "mensagem": "MONTAGEM CARCAÇA E SUPORTE",
+            },
+            {
+                "numero_op": "5325",
+                "cliente": "SUPRIMAX EMPR...",
+                "modelo": "VESPER PE 630e T4 5,0 CV",
+                "mensagem": "LIBERAÇÃO DE QUALIDADE",
+            },
+        ]
+        chosen = samples[:max(1, min(count, len(samples)))]
+        for idx, sample in enumerate(chosen):
+            self._active_reminders[f"test_{idx}"] = {
+                "id": f"test_{idx}",
+                "dto": sample,
+                "remaining": duration_seconds,
+            }
+
         if self._settings.get("reminder_pause_pagination", True):
             self._timer.stop()
+
         self.reminder_overlay.apply_style(
             background=str(self._settings.get("reminder_card_background", "#0f172a")),
             foreground=str(self._settings.get("reminder_card_foreground", "#f8fafc")),
@@ -309,63 +499,69 @@ class TvFocusWindow(QWidget):
             font_scale_percent=int(self._settings.get("reminder_font_scale_percent", 100)),
             width_percent=int(self._settings.get("reminder_width_percent", 65)),
         )
-        self.reminder_overlay.show_reminder(test_data, duration_seconds)
+        self.reminder_overlay.sync_reminders(list(self._active_reminders.values()))
 
     def _check_reminders_tick(self) -> None:
-        if self._active_reminder is not None:
-            self._remaining_reminder_seconds -= 1
-            if self._remaining_reminder_seconds <= 0:
-                self._active_reminder = None
+        # 1. Decrementa contadores dos lembretes atualmente ativos
+        expired = []
+        for r_id, item in list(self._active_reminders.items()):
+            item["remaining"] = int(item.get("remaining", 0)) - 1
+            if item["remaining"] <= 0:
+                expired.append(r_id)
+
+        for r_id in expired:
+            self._active_reminders.pop(r_id, None)
+
+        # 2. Verifica se novos lembretes devem disparar no minuto atual
+        if self._settings.get("reminder_enabled", True) and self._reminders:
+            now_time = QTime.currentTime().toString("HH:mm")
+            today = date.today()
+            day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+            today_name = day_names[today.weekday()]
+
+            for r in self._reminders:
+                if not r.ativo or r.horario != now_time:
+                    continue
+                trigger_key = f"{r.id}:{today.isoformat()}:{now_time}"
+                if trigger_key in self._last_triggered_keys:
+                    continue
+
+                matches = False
+                if r.tipo_recorrencia == "DAILY":
+                    matches = True
+                elif r.tipo_recorrencia == "WEEKDAYS":
+                    matches = today.weekday() < 5
+                elif r.tipo_recorrencia == "CUSTOM":
+                    matches = today_name in [d.lower() for d in r.dias_semana]
+                elif r.tipo_recorrencia == "ONCE":
+                    matches = (r.data_inicio == today) if r.data_inicio else True
+
+                if matches:
+                    self._last_triggered_keys.add(trigger_key)
+                    self._active_reminders[str(r.id)] = {
+                        "id": str(r.id),
+                        "dto": r,
+                        "remaining": max(5, r.duracao_segundos),
+                    }
+
+        # 3. Atualiza os cards visíveis ou oculta o overlay quando terminar
+        if self._active_reminders:
+            if self._settings.get("reminder_pause_pagination", True) and self._timer.isActive():
+                self._timer.stop()
+            self.reminder_overlay.apply_style(
+                background=str(self._settings.get("reminder_card_background", "#0f172a")),
+                foreground=str(self._settings.get("reminder_card_foreground", "#f8fafc")),
+                border_color=str(self._settings.get("reminder_card_border", "#38bdf8")),
+                font_scale_percent=int(self._settings.get("reminder_font_scale_percent", 100)),
+                width_percent=int(self._settings.get("reminder_width_percent", 65)),
+            )
+            self.reminder_overlay.sync_reminders(list(self._active_reminders.values()))
+        else:
+            if self.reminder_overlay.isVisible():
                 self.reminder_overlay.setVisible(False)
                 if self._settings.get("reminder_pause_pagination", True) and not self._timer.isActive():
                     interval = int(self._settings.get("page_interval_seconds", 13)) * 1000
                     self._timer.start(interval)
-            else:
-                self.reminder_overlay.update_countdown(self._remaining_reminder_seconds)
-            return
-
-        if not self._settings.get("reminder_enabled", True) or not self._reminders:
-            return
-
-        now_time = QTime.currentTime().toString("HH:mm")
-        today = date.today()
-        day_names = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
-        today_name = day_names[today.weekday()]
-
-        for r in self._reminders:
-            if not r.ativo:
-                continue
-            if r.horario != now_time:
-                continue
-            trigger_key = f"{r.id}:{today.isoformat()}:{now_time}"
-            if trigger_key in self._last_triggered_keys:
-                continue
-
-            matches = False
-            if r.tipo_recorrencia == "DAILY":
-                matches = True
-            elif r.tipo_recorrencia == "WEEKDAYS":
-                matches = today.weekday() < 5
-            elif r.tipo_recorrencia == "CUSTOM":
-                matches = today_name in [d.lower() for d in r.dias_semana]
-            elif r.tipo_recorrencia == "ONCE":
-                matches = (r.data_inicio == today) if r.data_inicio else True
-
-            if matches:
-                self._last_triggered_keys.add(trigger_key)
-                self._active_reminder = r
-                self._remaining_reminder_seconds = max(5, r.duracao_segundos)
-                if self._settings.get("reminder_pause_pagination", True):
-                    self._timer.stop()
-                self.reminder_overlay.apply_style(
-                    background=str(self._settings.get("reminder_card_background", "#0f172a")),
-                    foreground=str(self._settings.get("reminder_card_foreground", "#f8fafc")),
-                    border_color=str(self._settings.get("reminder_card_border", "#38bdf8")),
-                    font_scale_percent=int(self._settings.get("reminder_font_scale_percent", 100)),
-                    width_percent=int(self._settings.get("reminder_width_percent", 65)),
-                )
-                self.reminder_overlay.show_reminder(r, self._remaining_reminder_seconds)
-                break
 
     def set_ops(self, ops: list[OpListDTO]) -> None:
         self._all_ops = list(ops)
