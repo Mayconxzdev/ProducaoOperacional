@@ -1,0 +1,1170 @@
+from __future__ import annotations
+
+import calendar
+import csv
+import subprocess
+from datetime import date, datetime
+from pathlib import Path
+from typing import Sequence
+
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
+from kanban_app.application.dto import (
+    MonthlyOpItemDTO,
+    MonthlyReportSummaryDTO,
+    MonthlySectorStatDTO,
+    MonthlyWeekStatDTO,
+    SectorDTO,
+)
+from kanban_app.formatting import format_br_date
+from kanban_app.infrastructure.db.repositories import ProductionRepository
+
+MONTH_NAMES = (
+    "",
+    "Janeiro",
+    "Fevereiro",
+    "Março",
+    "Abril",
+    "Maio",
+    "Junho",
+    "Julho",
+    "Agosto",
+    "Setembro",
+    "Outubro",
+    "Novembro",
+    "Dezembro",
+)
+
+
+def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_count: int) -> str:
+    """Renderiza um gráfico donut de pontualidade em PNG de alta resolução codificado em Base64.
+
+    Garante compatibilidade universal com todos os motores de PDF (Edge, Chrome, PySide6, etc.).
+    """
+    import base64
+    from PySide6.QtCore import QBuffer, QIODevice, QRectF, Qt
+    from PySide6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter, QPen
+
+    _ = QGuiApplication.instance() or QGuiApplication([])
+
+    img = QImage(280, 280, QImage.Format.Format_ARGB32)
+    img.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(img)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+
+    rect = QRectF(22, 22, 236, 236)
+    pen_width = 28
+    rect.adjust(pen_width / 2, pen_width / 2, -pen_width / 2, -pen_width / 2)
+
+    total = on_time_count + delayed_count
+    if total == 0:
+        pen = QPen(QColor("#cbd5e1"))
+        pen.setWidth(pen_width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(rect)
+
+        painter.setPen(QColor("#64748b"))
+        painter.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
+        t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
+        painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "N/A")
+
+        painter.setFont(QFont("Segoe UI", 12, QFont.Weight.DemiBold))
+        painter.setPen(QColor("#94a3b8"))
+        l_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.54, rect.width(), rect.height() * 0.25)
+        painter.drawText(l_rect, Qt.AlignmentFlag.AlignCenter, "Sem Saídas")
+    elif delayed_count == 0 or on_time_pct >= 100.0:
+        pen = QPen(QColor("#22c55e"))
+        pen.setWidth(pen_width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(rect)
+
+        painter.setPen(QColor("#15803d"))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
+        t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
+        painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "100.0%")
+
+        painter.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        painter.setPen(QColor("#16a34a"))
+        l_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.54, rect.width(), rect.height() * 0.25)
+        painter.drawText(l_rect, Qt.AlignmentFlag.AlignCenter, "No Prazo")
+    elif on_time_count == 0:
+        pen = QPen(QColor("#ef4444"))
+        pen.setWidth(pen_width)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(rect)
+
+        painter.setPen(QColor("#b91c1c"))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
+        t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
+        painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "0.0%")
+
+        painter.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        painter.setPen(QColor("#dc2626"))
+        l_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.54, rect.width(), rect.height() * 0.25)
+        painter.drawText(l_rect, Qt.AlignmentFlag.AlignCenter, "Com Atraso")
+    else:
+        pen_red = QPen(QColor("#ef4444"))
+        pen_red.setWidth(pen_width)
+        painter.setPen(pen_red)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(rect)
+
+        pen_green = QPen(QColor("#22c55e"))
+        pen_green.setWidth(pen_width)
+        painter.setPen(pen_green)
+        span_angle = int((on_time_pct / 100.0) * 360 * 16)
+        painter.drawArc(rect, 90 * 16, -span_angle)
+
+        painter.setPen(QColor("#0f172a"))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
+        t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
+        painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, f"{on_time_pct:.1f}%")
+
+        painter.setFont(QFont("Segoe UI", 13, QFont.Weight.DemiBold))
+        painter.setPen(QColor("#64748b"))
+        l_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.54, rect.width(), rect.height() * 0.25)
+        painter.drawText(l_rect, Qt.AlignmentFlag.AlignCenter, "No Prazo")
+
+    painter.end()
+
+    buffer = QBuffer()
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    img.save(buffer, "PNG")
+    return base64.b64encode(buffer.data().data()).decode("utf-8")
+
+
+class MonthlyReportService:
+    def __init__(self, repository: ProductionRepository):
+        self.repository = repository
+
+    def build_summary(
+        self,
+        year: int,
+        month: int,
+        *,
+        reference_date: date | None = None,
+    ) -> MonthlyReportSummaryDTO:
+        today = reference_date or date.today()
+        month = max(1, min(12, int(month)))
+        year = max(2000, min(2100, int(year)))
+
+        _, last_day = calendar.monthrange(year, month)
+        periodo_inicio = date(year, month, 1)
+        periodo_fim = date(year, month, last_day)
+
+        is_current_month = (year == today.year and month == today.month)
+        is_mes_fechado = not is_current_month and (periodo_fim < today)
+
+        raw_ops, sectors = self.repository.get_monthly_report_raw(periodo_inicio, periodo_fim)
+
+        items: list[MonthlyOpItemDTO] = []
+        created_count = 0
+        created_pcs = 0
+        concluded_count = 0
+        concluded_pcs = 0
+        on_time_count = 0
+        delayed_count = 0
+        lead_time_days_total = 0
+        lead_time_ops_count = 0
+        in_production_now = 0
+        in_delay_now = 0
+        remaining_forecast = 0
+
+        sector_counts: dict[str, int] = {s.nome: 0 for s in sectors}
+        sector_pcs: dict[str, int] = {s.nome: 0 for s in sectors}
+
+        CONCLUDED_SECTORS = {"expedição", "expedicao", "faturado"}
+        seen_op_ids: set[int] = set()
+
+        for op in raw_ops:
+            op_id = int(op["id"])
+            op_created_at: datetime | None = op["created_at"]
+            op_completed_at: datetime | None = op["completed_at"]
+            d_inicio: date | None = op["data_inicio"]
+            d_entrega: date | None = op["data_entrega"]
+            qtd = op["quantidade"] if op["quantidade"] is not None else 0
+            sec_nome = str(op["setor_nome"] or "Sem setor")
+            status_str = str(op["status"] or "")
+
+            sec_nome_lower = sec_nome.strip().lower()
+            is_concluded_sector = sec_nome_lower in CONCLUDED_SECTORS
+            is_status_concluido = (status_str == "CONCLUIDO")
+
+            # Data de conclusão efetiva: completed_at oficial ou transição para setor final/atualização
+            effective_completed_at: datetime | None = None
+            if is_status_concluido or is_concluded_sector:
+                effective_completed_at = op_completed_at or op.get("sector_entered_at") or op.get("updated_at")
+
+            created_in_month = False
+            if op_created_at and periodo_inicio <= op_created_at.date() <= periodo_fim:
+                created_in_month = True
+            elif d_inicio and periodo_inicio <= d_inicio <= periodo_fim:
+                created_in_month = True
+
+            completed_in_month = False
+            if effective_completed_at and periodo_inicio <= effective_completed_at.date() <= periodo_fim:
+                completed_in_month = True
+
+            is_active_current = is_current_month and not op["archived"] and not (is_status_concluido or is_concluded_sector)
+
+            if not (created_in_month or completed_in_month or (is_current_month and is_active_current)):
+                continue
+
+            if op_id in seen_op_ids:
+                continue
+            seen_op_ids.add(op_id)
+
+            if created_in_month:
+                created_count += 1
+                created_pcs += qtd
+
+            entregue_no_prazo: bool | None = None
+            esta_em_atraso = False
+            dias_producao: int | None = None
+            categoria = "EM_PRODUCAO"
+
+            if completed_in_month:
+                concluded_count += 1
+                concluded_pcs += qtd
+
+                if d_entrega is not None and effective_completed_at is not None:
+                    if effective_completed_at.date() <= d_entrega:
+                        entregue_no_prazo = True
+                        on_time_count += 1
+                        categoria = "CONCLUIDA_NO_PRAZO"
+                    else:
+                        entregue_no_prazo = False
+                        delayed_count += 1
+                        categoria = "CONCLUIDA_COM_ATRASO"
+                else:
+                    entregue_no_prazo = True
+                    on_time_count += 1
+                    categoria = "CONCLUIDA_NO_PRAZO"
+
+                if d_inicio and effective_completed_at:
+                    diff = (effective_completed_at.date() - d_inicio).days
+                    dias_producao = max(0, diff)
+                    lead_time_days_total += dias_producao
+                    lead_time_ops_count += 1
+            else:
+                if is_current_month and is_active_current:
+                    in_production_now += 1
+                    if d_entrega and d_entrega < today:
+                        esta_em_atraso = True
+                        in_delay_now += 1
+                        categoria = "EM_ATRASO"
+                    else:
+                        categoria = "EM_PRODUCAO"
+                        if d_entrega and today <= d_entrega <= periodo_fim:
+                            remaining_forecast += 1
+
+                    if d_inicio:
+                        dias_producao = max(0, (today - d_inicio).days)
+
+            if sec_nome not in sector_counts:
+                sector_counts[sec_nome] = 0
+                sector_pcs[sec_nome] = 0
+            sector_counts[sec_nome] += 1
+            sector_pcs[sec_nome] += qtd
+
+            items.append(
+                MonthlyOpItemDTO(
+                    op_id=op_id,
+                    numero_op=str(op["numero_op"]),
+                    cliente=str(op["cliente"]),
+                    modelo=str(op["modelo"]),
+                    quantidade=op["quantidade"],
+                    voltagem=str(op["voltagem"] or ""),
+                    setor_nome=sec_nome,
+                    status="CONCLUIDO" if (is_status_concluido or is_concluded_sector) else status_str,
+                    data_inicio=d_inicio,
+                    data_entrega=d_entrega,
+                    completed_at=effective_completed_at,
+                    dias_producao=dias_producao,
+                    entregue_no_prazo=entregue_no_prazo,
+                    esta_em_atraso=esta_em_atraso,
+                    categoria=categoria,
+                )
+            )
+
+        items.sort(key=lambda x: (x.data_entrega or date.max, x.numero_op))
+
+        taxa_pontualidade = 100.0
+        if concluded_count > 0:
+            taxa_pontualidade = round((on_time_count / concluded_count) * 100.0, 1)
+
+        # Taxa de conformidade de cronograma:
+        # Se for mês fechado, a conformidade reflete o cumprimento integral de prazos das entregas.
+        # Se for mês em andamento, mede o percentual da carteira ativa hoje sem atraso na fábrica.
+        if is_mes_fechado:
+            taxa_conformidade = taxa_pontualidade
+        else:
+            if in_production_now > 0:
+                taxa_conformidade = round(((in_production_now - in_delay_now) / in_production_now) * 100.0, 1)
+            else:
+                taxa_conformidade = 100.0
+
+        lead_time_medio = 0.0
+        if lead_time_ops_count > 0:
+            lead_time_medio = round(lead_time_days_total / lead_time_ops_count, 1)
+
+        sector_stats: list[MonthlySectorStatDTO] = []
+        sec_color_map = {s.nome: s.cor for s in sectors}
+        sec_id_map = {s.nome: s.id for s in sectors}
+        for s_nome, count in sector_counts.items():
+            if count > 0:
+                sector_stats.append(
+                    MonthlySectorStatDTO(
+                        setor_id=sec_id_map.get(s_nome),
+                        setor_nome=s_nome,
+                        cor=sec_color_map.get(s_nome, "#3b82f6"),
+                        total_ops=count,
+                        total_quantidade=sector_pcs.get(s_nome, 0),
+                    )
+                )
+        sector_stats.sort(key=lambda s: s.total_ops, reverse=True)
+
+        week_stats: list[MonthlyWeekStatDTO] = []
+        cur_day = 1
+        week_idx = 1
+        while cur_day <= last_day:
+            w_start = date(year, month, cur_day)
+            w_end_day = min(cur_day + 6, last_day)
+            w_end = date(year, month, w_end_day)
+
+            w_in = 0
+            w_out = 0
+            for item in items:
+                if item.data_inicio and w_start <= item.data_inicio <= w_end:
+                    w_in += 1
+                if item.completed_at and w_start <= item.completed_at.date() <= w_end:
+                    w_out += 1
+
+            week_stats.append(
+                MonthlyWeekStatDTO(
+                    label=f"Sem {week_idx} ({w_start.day:02d}-{w_end.day:02d})",
+                    data_inicio=w_start,
+                    data_fim=w_end,
+                    entradas=w_in,
+                    saidas=w_out,
+                )
+            )
+            cur_day = w_end_day + 1
+            week_idx += 1
+
+        return MonthlyReportSummaryDTO(
+            ano=year,
+            mes=month,
+            nome_mes=MONTH_NAMES[month],
+            periodo_inicio=periodo_inicio,
+            periodo_fim=periodo_fim,
+            data_referencia=today,
+            is_mes_fechado=is_mes_fechado,
+            total_criadas=created_count,
+            total_criadas_pecas=created_pcs,
+            total_concluidas=concluded_count,
+            total_concluidas_pecas=concluded_pcs,
+            concluidas_no_prazo=on_time_count,
+            concluidas_com_atraso=delayed_count,
+            taxa_pontualidade=taxa_pontualidade,
+            taxa_conformidade=taxa_conformidade,
+            lead_time_medio_dias=lead_time_medio,
+            em_producao_agora=in_production_now,
+            em_atraso_agora=in_delay_now,
+            previsao_restante_mes=remaining_forecast,
+            setores_stats=tuple(sector_stats),
+            semanas_stats=tuple(week_stats),
+            ops=tuple(items),
+        )
+
+    def export_to_excel(self, summary: MonthlyReportSummaryDTO, file_path: str | Path) -> Path:
+        """Gera uma pasta de trabalho Excel (.xlsx) altamente profissional e diagramada."""
+        target = Path(file_path).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        wb = openpyxl.Workbook()
+
+        # Estilos reutilizáveis
+        header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+        header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+        sub_fill = PatternFill(start_color="F1F5F9", end_color="F1F5F9", fill_type="solid")
+
+        thin_side = Side(border_style="thin", color="CBD5E1")
+        cell_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+
+        align_center = Alignment(horizontal="center", vertical="center")
+        align_left = Alignment(horizontal="left", vertical="center")
+        align_right = Alignment(horizontal="right", vertical="center")
+
+        # -------------------------------------------------------------
+        # ABA 1: RESUMO EXECUTIVO
+        # -------------------------------------------------------------
+        ws_resumo = wb.active
+        ws_resumo.title = "Resumo Executivo"
+        ws_resumo.views.sheetView[0].showGridLines = True
+
+        # Título
+        ws_resumo.merge_cells("A1:E1")
+        title_cell = ws_resumo["A1"]
+        title_cell.value = f"PRODUÇÃO OPERACIONAL — RELATÓRIO DE {summary.nome_mes.upper()} / {summary.ano}"
+        title_cell.font = Font(name="Segoe UI", size=14, bold=True, color="1E3A8A")
+        title_cell.alignment = align_left
+
+        sit_desc = "MÊS FECHADO / CONCLUÍDO" if summary.is_mes_fechado else f"PARCIAL EM ANDAMENTO (até {format_br_date(summary.data_referencia)})"
+        ws_resumo["A2"] = f"Situação: {sit_desc}"
+        ws_resumo["A2"].font = Font(name="Segoe UI", size=10, italic=True, color="64748B")
+
+        # Bloco de KPIs
+        ws_resumo["A4"] = "INDICADOR"
+        ws_resumo["B4"] = "VALOR"
+        ws_resumo["C4"] = "DETALHES"
+        for col_name in ("A4", "B4", "C4"):
+            ws_resumo[col_name].fill = header_fill
+            ws_resumo[col_name].font = header_font
+            ws_resumo[col_name].alignment = align_center
+
+        kpis = [
+            ("Total de OPs Criadas no Mês", f"{summary.total_criadas} OPs", f"{summary.total_criadas_pecas} peças"),
+            ("Total de OPs Concluídas no Mês", f"{summary.total_concluidas} OPs", f"{summary.total_concluidas_pecas} peças | Ciclo Médio: {summary.lead_time_medio_dias:.1f} dias" if summary.total_concluidas > 0 else "Sem conclusões no mês"),
+            ("Entregue no Prazo (OTD)", f"{summary.taxa_pontualidade:.1f}%", f"{summary.concluidas_no_prazo} de {summary.total_concluidas or 0} entregues no prazo" if summary.total_concluidas > 0 else "N/A"),
+            ("Entregas com Atraso", f"{summary.concluidas_com_atraso} OPs", f"Taxa de Atraso: {(100.0 - summary.taxa_pontualidade) if summary.total_concluidas > 0 else 0.0:.1f}%"),
+            ("Em Produção no Chão de Fábrica", f"{summary.em_producao_agora} OPs", f"{summary.em_atraso_agora} atualmente em atraso hoje" if summary.em_atraso_agora > 0 else "Todas no prazo"),
+            ("Índice de Conformidade de Cronograma", f"{summary.taxa_conformidade:.1f}%", "Carteira ativa em conformidade total" if summary.em_atraso_agora == 0 else f"{summary.em_atraso_agora} OPs com atraso na linha hoje"),
+            ("Previsão de Entrega até Fim do Mês", f"{summary.previsao_restante_mes} OPs", "Entregas programadas restantes"),
+        ]
+
+        for i, (lbl, val, det) in enumerate(kpis, start=5):
+            ws_resumo[f"A{i}"] = lbl
+            ws_resumo[f"B{i}"] = val
+            ws_resumo[f"C{i}"] = det
+            ws_resumo[f"A{i}"].font = Font(name="Segoe UI", size=10, bold=True)
+            ws_resumo[f"B{i}"].font = Font(name="Segoe UI", size=10, bold=True, color="1E3A8A")
+            ws_resumo[f"B{i}"].alignment = align_center
+            ws_resumo[f"C{i}"].font = Font(name="Segoe UI", size=9, color="475569")
+            for c in (f"A{i}", f"B{i}", f"C{i}"):
+                ws_resumo[c].border = cell_border
+                if i % 2 == 1:
+                    ws_resumo[c].fill = sub_fill
+
+        # Tabela por Setor
+        start_sec = 13
+        ws_resumo[f"A{start_sec}"] = "SETOR"
+        ws_resumo[f"B{start_sec}"] = "TOTAL OPS"
+        ws_resumo[f"C{start_sec}"] = "TOTAL PEÇAS"
+        for col_name in (f"A{start_sec}", f"B{start_sec}", f"C{start_sec}"):
+            ws_resumo[col_name].fill = header_fill
+            ws_resumo[col_name].font = header_font
+            ws_resumo[col_name].alignment = align_center
+
+        cur_row = start_sec + 1
+        for sec in summary.setores_stats:
+            ws_resumo[f"A{cur_row}"] = sec.setor_nome
+            ws_resumo[f"B{cur_row}"] = sec.total_ops
+            ws_resumo[f"C{cur_row}"] = sec.total_quantidade
+            ws_resumo[f"A{cur_row}"].font = Font(name="Segoe UI", size=10)
+            ws_resumo[f"B{cur_row}"].font = Font(name="Segoe UI", size=10, bold=True)
+            ws_resumo[f"B{cur_row}"].alignment = align_center
+            ws_resumo[f"C{cur_row}"].font = Font(name="Segoe UI", size=10)
+            ws_resumo[f"C{cur_row}"].alignment = align_center
+            for c in (f"A{cur_row}", f"B{cur_row}", f"C{cur_row}"):
+                ws_resumo[c].border = cell_border
+            cur_row += 1
+
+        # Auto-ajuste de colunas na aba de resumo
+        for col in ws_resumo.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws_resumo.column_dimensions[col_letter].width = max(max_len + 4, 16)
+
+        # -------------------------------------------------------------
+        # ABA 2: TODAS AS ORDENS DE PRODUÇÃO (DETALHADO)
+        # -------------------------------------------------------------
+        ws_ops = wb.create_sheet(title="Ordens de Produção")
+        ws_ops.views.sheetView[0].showGridLines = True
+
+        headers = [
+            "OP",
+            "Cliente",
+            "Modelo",
+            "Quantidade",
+            "Voltagem",
+            "Setor",
+            "Data Início",
+            "Prazo Entrega",
+            "Data Conclusão",
+            "Ciclo (Dias)",
+            "Situação",
+        ]
+
+        ws_ops.append(headers)
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws_ops.cell(row=1, column=col_idx)
+            cell.fill = header_fill
+            cell.font = header_font
+            cell.alignment = align_center
+            cell.border = cell_border
+
+        for op in summary.ops:
+            dt_ini = format_br_date(op.data_inicio) or "-"
+            dt_ent = format_br_date(op.data_entrega) or "-"
+            dt_conc = op.completed_at.strftime("%d/%m/%Y") if op.completed_at else "-"
+            ciclo = op.dias_producao if op.dias_producao is not None else "-"
+
+            sit = "Em Linha"
+            if op.categoria == "CONCLUIDA_NO_PRAZO":
+                sit = "Concluída no Prazo"
+            elif op.categoria == "CONCLUIDA_COM_ATRASO":
+                sit = "Concluída com Atraso"
+            elif op.categoria == "EM_ATRASO":
+                sit = "Em Linha (Atrasada)"
+
+            row_data = [
+                op.numero_op,
+                op.cliente,
+                op.modelo,
+                op.quantidade if op.quantidade is not None else "-",
+                op.voltagem,
+                op.setor_nome,
+                dt_ini,
+                dt_ent,
+                dt_conc,
+                ciclo,
+                sit,
+            ]
+            ws_ops.append(row_data)
+
+            r_idx = ws_ops.max_row
+            for col_idx in range(1, len(headers) + 1):
+                c = ws_ops.cell(row=r_idx, column=col_idx)
+                c.border = cell_border
+                c.font = Font(name="Segoe UI", size=10)
+
+                # Alinhamentos
+                if col_idx in {1, 4, 7, 8, 9, 10, 11}:
+                    c.alignment = align_center
+
+                # Cores de situação
+                if col_idx == 11:
+                    if op.categoria == "CONCLUIDA_NO_PRAZO":
+                        c.fill = PatternFill(start_color="DCFCE7", end_color="DCFCE7", fill_type="solid")
+                        c.font = Font(name="Segoe UI", size=10, bold=True, color="15803D")
+                    elif op.categoria == "CONCLUIDA_COM_ATRASO":
+                        c.fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
+                        c.font = Font(name="Segoe UI", size=10, bold=True, color="B91C1C")
+                    elif op.categoria == "EM_ATRASO":
+                        c.fill = PatternFill(start_color="FFE4E6", end_color="FFE4E6", fill_type="solid")
+                        c.font = Font(name="Segoe UI", size=10, bold=True, color="DC2626")
+                    else:
+                        c.fill = PatternFill(start_color="DBEAFE", end_color="DBEAFE", fill_type="solid")
+                        c.font = Font(name="Segoe UI", size=10, bold=True, color="1D4ED8")
+
+        # Auto-ajuste de colunas garantindo que NUNCA apareça "###"
+        for col in ws_ops.columns:
+            max_len = 0
+            for cell in col:
+                val_str = str(cell.value or "")
+                if len(val_str) > max_len:
+                    max_len = len(val_str)
+            col_letter = get_column_letter(col[0].column)
+            ws_ops.column_dimensions[col_letter].width = max(max_len + 4, 13)
+
+        # Congela cabeçalho e ativa autofiltro
+        ws_ops.freeze_panes = "A2"
+        ws_ops.auto_filter.ref = ws_ops.dimensions
+
+        wb.save(target)
+        return target
+
+    def export_to_csv(self, summary: MonthlyReportSummaryDTO, file_path: str | Path) -> Path:
+        """Compatibilidade: exporta dados em CSV."""
+        target = Path(file_path).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        with target.open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(["RELATÓRIO MENSAL DE PRODUÇÃO", f"{summary.nome_mes} / {summary.ano}"])
+            status_desc = "MÊS FECHADO" if summary.is_mes_fechado else f"PARCIAL EM ANDAMENTO (até {format_br_date(summary.data_referencia)})"
+            writer.writerow(["Situação", status_desc])
+            writer.writerow([])
+            writer.writerow(["INDICADOR", "VALOR"])
+            writer.writerow(["Total de OPs Criadas no Mês", summary.total_criadas])
+            writer.writerow(["Volume de Peças Criadas", summary.total_criadas_pecas])
+            writer.writerow(["Total de OPs Concluídas no Mês", summary.total_concluidas])
+            writer.writerow(["Volume de Peças Concluídas", summary.total_concluidas_pecas])
+            writer.writerow(["Concluídas no Prazo", summary.concluidas_no_prazo])
+            writer.writerow(["Concluídas com Atraso", summary.concluidas_com_atraso])
+            writer.writerow(["Taxa de Entrega no Prazo (OTD - %)", f"{summary.taxa_pontualidade}%"])
+            writer.writerow(["Índice de Conformidade de Cronograma (%)", f"{summary.taxa_conformidade}%"])
+            writer.writerow(["Lead Time Médio (Dias)", f"{summary.lead_time_medio_dias} dias"])
+            writer.writerow([])
+
+            writer.writerow([
+                "OP",
+                "Cliente",
+                "Modelo",
+                "Quantidade",
+                "Voltagem",
+                "Setor",
+                "Data Início",
+                "Prazo Entrega",
+                "Data Conclusão",
+                "Dias Produção",
+                "Situação",
+            ])
+
+            for op in summary.ops:
+                dt_conc = op.completed_at.strftime("%d/%m/%Y") if op.completed_at else ""
+                sit = "Em Linha"
+                if op.categoria == "CONCLUIDA_NO_PRAZO":
+                    sit = "Concluída no Prazo"
+                elif op.categoria == "CONCLUIDA_COM_ATRASO":
+                    sit = "Concluída com Atraso"
+                elif op.categoria == "EM_ATRASO":
+                    sit = "Em Linha (Atrasada)"
+
+                writer.writerow([
+                    op.numero_op,
+                    op.cliente,
+                    op.modelo,
+                    op.quantidade if op.quantidade is not None else "",
+                    op.voltagem,
+                    op.setor_nome,
+                    format_br_date(op.data_inicio),
+                    format_br_date(op.data_entrega),
+                    dt_conc,
+                    op.dias_producao if op.dias_producao is not None else "",
+                    sit,
+                ])
+
+        return target
+
+    def export_to_pdf(self, summary: MonthlyReportSummaryDTO, file_path: str | Path) -> Path:
+        """Gera um PDF executivo de alta fidelidade visual usando o motor Chromium do Windows ou Qt."""
+        import sys
+        import tempfile
+
+        target = Path(file_path).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        # 1. Verifica previamente se o arquivo já está aberto com trava de escrita por outro aplicativo
+        if target.is_file():
+            try:
+                with open(target, "a+b"):
+                    pass
+            except (PermissionError, OSError):
+                raise PermissionError(
+                    f"O arquivo '{target.name}' já está aberto em outro programa (leitor de PDF ou navegador).\n\n"
+                    "Por favor, feche o visualizador de PDF e tente exportar novamente."
+                )
+
+        html_content = self._generate_html_report(summary)
+
+        # Salva arquivo HTML temporário
+        temp_html = target.with_suffix(".tmp.html")
+        temp_html.write_text(html_content, encoding="utf-8")
+
+        # 2. Tenta usar o Microsoft Edge headless nativo do Windows com perfil isolado
+        edge_paths = [
+            Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
+            Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
+        ]
+        edge_bin = next((p for p in edge_paths if p.is_file()), None)
+
+        if edge_bin:
+            try:
+                with tempfile.TemporaryDirectory() as user_data_dir:
+                    in_uri = temp_html.as_uri()
+                    cmd = [
+                        str(edge_bin),
+                        "--headless=new",
+                        "--disable-gpu",
+                        "--no-pdf-header-footer",
+                        "--run-all-compositor-stages-before-draw",
+                        "--no-first-run",
+                        "--no-default-browser-check",
+                        f"--user-data-dir={user_data_dir}",
+                        f"--print-to-pdf={str(target)}",
+                        in_uri,
+                    ]
+                    creation_flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
+                    subprocess.run(cmd, capture_output=True, timeout=20, creationflags=creation_flags)
+                    if target.is_file() and target.stat().st_size > 1000:
+                        temp_html.unlink(missing_ok=True)
+                        return target
+            except Exception:
+                pass
+
+        # 3. Fallback: PySide6 QPdfWriter calibrado para A4 Paisagem
+        try:
+            from PySide6.QtCore import QMarginsF, QSizeF
+            from PySide6.QtGui import QFont, QPageLayout, QPageSize, QPdfWriter, QTextDocument
+
+            doc = QTextDocument()
+            doc.setDefaultFont(QFont("Segoe UI", 9))
+            doc.setHtml(html_content)
+
+            writer = QPdfWriter(str(target))
+            writer.setResolution(96)  # Calibra para escala de tela 96 DPI
+            writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+            writer.setPageOrientation(QPageLayout.Orientation.Landscape)
+            writer.setPageMargins(QMarginsF(6, 6, 6, 6), QPageLayout.Unit.Millimeter)
+
+            doc.setPageSize(QSizeF(writer.width(), writer.height()))
+            doc.print_(writer)
+            del writer
+        finally:
+            temp_html.unlink(missing_ok=True)
+
+        return target
+
+    def _generate_html_report(self, s: MonthlyReportSummaryDTO) -> str:
+        status_badge = (
+            "<span style='display: inline-block; white-space: nowrap; background: #14532d; color: #86efac; border: 1px solid #166534; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 10.5px;'>MÊS FECHADO / CONCLUÍDO</span>"
+            if s.is_mes_fechado
+            else f"<span style='display: inline-block; white-space: nowrap; background: #78350f; color: #fde047; border: 1px solid #92400e; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 10.5px;'>PARCIAL EM ANDAMENTO (até {format_br_date(s.data_referencia)})</span>"
+        )
+
+        rows_html = []
+        for idx, op in enumerate(s.ops):
+            dt_conc = op.completed_at.strftime("%d/%m/%Y") if op.completed_at else "-"
+            bg_tr = "#ffffff" if idx % 2 == 0 else "#f8fafc"
+
+            if op.categoria == "CONCLUIDA_NO_PRAZO":
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>✔ No Prazo</span>"
+            elif op.categoria == "CONCLUIDA_COM_ATRASO":
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>✖ Com Atraso</span>"
+            elif op.categoria == "EM_ATRASO":
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #ffe4e6; color: #dc2626; border: 1px solid #fecdd3; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>🚨 Atrasada Hoje</span>"
+            else:
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>⚙ Em Linha</span>"
+
+            rows_html.append(
+                f"""
+                <tr style='background-color: {bg_tr};'>
+                    <td style='font-weight: 700; padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #0f172a;'>{op.numero_op}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;'>{op.cliente}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #334155;'>{op.modelo}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #0f172a;'>{op.quantidade or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.setor_nome}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_inicio) or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_entrega) or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: #0f172a;'>{op.dias_producao if op.dias_producao is not None else '-'} d</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>{badge}</td>
+                </tr>
+                """
+            )
+
+        # Gráfico Donut de Pontualidade renderizado como imagem PNG em Base64 (100% compatível e sem risco de sumir)
+        donut_b64 = _render_donut_png_base64(s.taxa_pontualidade, s.concluidas_no_prazo, s.concluidas_com_atraso)
+        donut_img = f'<img src="data:image/png;base64,{donut_b64}" width="135" height="135" style="display: block; margin: 0 auto;" />'
+
+        # Barras de semanas com barras comparativas paralelas
+        weeks_html = []
+        max_ops = max([max(w.entradas, w.saidas) for w in s.semanas_stats] + [1])
+        for w in s.semanas_stats:
+            in_pct = int((w.entradas / max_ops) * 100) if max_ops > 0 else 0
+            out_pct = int((w.saidas / max_ops) * 100) if max_ops > 0 else 0
+            weeks_html.append(
+                f"""
+                <div style='margin-bottom: 5px;'>
+                    <table style='width: 100%; font-size: 10px; font-weight: 700; color: #334155; margin-bottom: 2px;'>
+                        <tr>
+                            <td style='text-align: left; padding: 0;'>{w.label}</td>
+                            <td style='text-align: right; padding: 0; font-size: 9.5px;'>
+                                <strong style='color: #2563eb;'>{w.entradas} in</strong> &nbsp;|&nbsp; <strong style='color: #16a34a;'>{w.saidas} out</strong>
+                            </td>
+                        </tr>
+                    </table>
+                    <table style='width: 100%; border-collapse: collapse;'>
+                        <tr>
+                            <td style='width: 50%; padding-right: 4px;'>
+                                <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                                    <div style='background: #3b82f6; width: {in_pct}%; height: 8px; border-radius: 4px;'></div>
+                                </div>
+                            </td>
+                            <td style='width: 50%; padding-left: 4px;'>
+                                <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                                    <div style='background: #10b981; width: {out_pct}%; height: 8px; border-radius: 4px;'></div>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+                """
+            )
+
+        # Setores com gramática correta
+        sector_bars = []
+        max_sec = max([sec.total_ops for sec in s.setores_stats] + [1])
+        for sec in s.setores_stats:
+            pct = int((sec.total_ops / max_sec) * 100)
+            op_txt = "1 OP" if sec.total_ops == 1 else f"{sec.total_ops} OPs"
+            peca_txt = "1 peça" if sec.total_quantidade == 1 else f"{sec.total_quantidade} peças"
+            sector_bars.append(
+                f"""
+                <div style='margin-bottom: 5px;'>
+                    <table style='width: 100%; font-size: 10px; color: #1e293b; margin-bottom: 2px;'>
+                        <tr>
+                            <td style='text-align: left; font-weight: 700; padding: 0;'>{sec.setor_nome}</td>
+                            <td style='text-align: right; font-weight: 700; color: #334155; padding: 0;'>
+                                {op_txt} <span style='font-weight: normal; color: #64748b;'>({peca_txt})</span>
+                            </td>
+                        </tr>
+                    </table>
+                    <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                        <div style='background: {sec.cor}; width: {pct}%; height: 8px; border-radius: 4px;'></div>
+                    </div>
+                </div>
+                """
+            )
+
+        # Mini tabela de OPs Concluídas no Mês para o Dashboard Executivo da Página 1 (até 6 mais recentes)
+        concluded_ops = [op for op in s.ops if op.completed_at]
+        concluded_rows = []
+        for idx, op in enumerate(concluded_ops[:6]):
+            dt_conc = op.completed_at.strftime("%d/%m/%Y") if op.completed_at else "-"
+            bg = "#ffffff" if idx % 2 == 0 else "#f8fafc"
+            b_color = "#15803d" if op.categoria == "CONCLUIDA_NO_PRAZO" else "#b91c1c"
+            b_bg = "#dcfce7" if op.categoria == "CONCLUIDA_NO_PRAZO" else "#fee2e8"
+            b_txt = "✔ No Prazo" if op.categoria == "CONCLUIDA_NO_PRAZO" else "✖ Com Atraso"
+            concluded_rows.append(
+                f"""
+                <tr style='background: {bg};'>
+                    <td style='font-weight: bold; padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center;'>{op.numero_op}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0;'>{op.cliente[:24]}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.modelo[:26]}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold;'>{op.dias_producao or '-'} d</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>
+                        <span style='display: inline-block; white-space: nowrap; background: {b_bg}; color: {b_color}; padding: 2px 7px; border-radius: 8px; font-weight: bold; font-size: 9px;'>{b_txt}</span>
+                    </td>
+                </tr>
+                """
+            )
+
+        # OPs em atraso hoje na linha (alerta de chão de fábrica)
+        delayed_in_line = [op for op in s.ops if op.categoria == "EM_ATRASO"]
+        alert_html = ""
+        if delayed_in_line:
+            d_op = delayed_in_line[0]
+            prazo_str = format_br_date(d_op.data_entrega) or "N/D"
+            alert_html = f"""
+            <div style='background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 10px; margin-top: 6px;'>
+                <div style='color: #dc2626; font-size: 10px; font-weight: bold;'>🚨 OP com Prazo Vencido em Produção:</div>
+                <div style='font-size: 9.5px; color: #991b1b; margin-top: 2px;'>
+                    <strong>OP {d_op.numero_op}</strong> &bull; {d_op.cliente} ({d_op.setor_nome})<br>
+                    Prazo previsto era <strong>{prazo_str}</strong> (em produção há {d_op.dias_producao} dias)
+                </div>
+            </div>
+            """
+        else:
+            alert_html = """
+            <div style='background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 10px; margin-top: 6px;'>
+                <div style='color: #16a34a; font-size: 10px; font-weight: bold;'>✔ Conformidade Total: Nenhuma OP atrasada na linha hoje</div>
+                <div style='font-size: 9px; color: #15803d; margin-top: 2px;'>Todas as ordens em fabricação estão rigorosamente dentro do cronograma acordado.</div>
+            </div>
+            """
+
+        multi_page = len(s.ops) > 7
+
+        html = f"""<!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8">
+            <title>Relatório Mensal - {s.nome_mes} / {s.ano}</title>
+            <style>
+                @page {{
+                    size: A4 landscape;
+                    margin: 6mm 8mm 6mm 8mm;
+                }}
+                * {{ box-sizing: border-box; }}
+                body {{
+                    font-family: 'Segoe UI', Arial, sans-serif;
+                    color: #0f172a;
+                    background: #ffffff;
+                    margin: 0;
+                    padding: 0;
+                    -webkit-print-color-adjust: exact;
+                    print-color-adjust: exact;
+                }}
+                .header-table {{ width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 5px; margin-bottom: 8px; }}
+                .kpi-card {{
+                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;
+                    padding: 8px 10px; text-align: left;
+                }}
+                .kpi-title {{ font-size: 8.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }}
+                .kpi-num {{ font-size: 20px; font-weight: 900; color: #0f172a; margin: 2px 0; }}
+                .kpi-sub {{ font-size: 10px; font-weight: 600; color: #475569; }}
+
+                .chart-panel {{
+                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;
+                    padding: 8px 10px;
+                }}
+                .panel-title {{ font-size: 10.5px; font-weight: 800; color: #0f172a; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; }}
+
+                table.data {{ width: 100%; border-collapse: collapse; font-size: 9.5px; }}
+                table.data th {{
+                    background-color: #1e3a8a; color: #ffffff; font-weight: 700;
+                    padding: 5px 6px; text-align: left; font-size: 9px;
+                }}
+                table.data td {{
+                    padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0;
+                }}
+                table.data tr {{ page-break-inside: avoid; }}
+                .page-footer {{
+                    margin-top: 6px; border-top: 1px solid #cbd5e1; padding-top: 4px;
+                    font-size: 8.5px; color: #94a3b8; display: table; width: 100%;
+                }}
+            </style>
+        </head>
+        <body>
+            <!-- ======================================================== -->
+            <!-- PÁGINA 1: DASHBOARD EXECUTIVO E INDICADORES DO MÊS       -->
+            <!-- ======================================================== -->
+            <table class='header-table'>
+                <tr>
+                    <td style='vertical-align: middle;'>
+                        <div style='font-size: 20px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL</div>
+                        <div style='font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;'>Relatório Executivo de Desempenho e Indicadores Industriais</div>
+                    </td>
+                    <td style='vertical-align: middle; text-align: right;'>
+                        <div style='font-size: 18px; font-weight: 900; color: #0f172a;'>{s.nome_mes.upper()} / {s.ano}</div>
+                        <div style='margin-top: 4px;'>{status_badge}</div>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- 5 KPIs em Grid Horizontal Nativo (Tabela 100% blindada) -->
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 9px; table-layout: fixed;'>
+                <tr>
+                    <td style='width: 20%; vertical-align: top; padding: 0;'>
+                        <div class='kpi-card' style='border-left: 4px solid #3b82f6;'>
+                            <div class='kpi-title'>Entradas no Mês</div>
+                            <div class='kpi-num'>{s.total_criadas} OPs</div>
+                            <div class='kpi-sub'>{s.total_criadas_pecas} {'peça' if s.total_criadas_pecas == 1 else 'peças'}</div>
+                        </div>
+                    </td>
+                    <td style='width: 20%; vertical-align: top; padding: 0;'>
+                        <div class='kpi-card' style='border-left: 4px solid #10b981;'>
+                            <div class='kpi-title'>Concluídas</div>
+                            <div class='kpi-num'>{s.total_concluidas} OPs</div>
+                            <div class='kpi-sub'>{f'Ciclo Médio: {s.lead_time_medio_dias:.1f}d' if s.total_concluidas > 0 else 'Sem saídas'}</div>
+                        </div>
+                    </td>
+                    <td style='width: 20%; vertical-align: top; padding: 0;'>
+                        <div class='kpi-card' style='border-left: 4px solid #22c55e;'>
+                            <div class='kpi-title'>Entregue no Prazo (OTD)</div>
+                            <div class='kpi-num' style='color: #15803d;'>{s.concluidas_no_prazo} OPs</div>
+                            <div class='kpi-sub' style='color: #15803d;'>{f'Pontualidade: {s.taxa_pontualidade:.1f}%' if s.total_concluidas > 0 else 'N/A'}</div>
+                        </div>
+                    </td>
+                    <td style='width: 20%; vertical-align: top; padding: 0;'>
+                        <div class='kpi-card' style='border-left: 4px solid #ef4444;'>
+                            <div class='kpi-title'>Com Atraso</div>
+                            <div class='kpi-num' style='color: #b91c1c;'>{s.concluidas_com_atraso} OPs</div>
+                            <div class='kpi-sub' style='color: #b91c1c;'>{f'Taxa de Atraso: {(100.0 - s.taxa_pontualidade) if s.total_concluidas > 0 else 0.0:.1f}%'}</div>
+                        </div>
+                    </td>
+                    <td style='width: 20%; vertical-align: top; padding: 0;'>
+                        <div class='kpi-card' style='border-left: 4px solid #f59e0b;'>
+                            <div class='kpi-title'>Em Produção Hoje</div>
+                            <div class='kpi-num' style='color: #b45309;'>{s.em_producao_agora} OPs</div>
+                            <div class='kpi-sub' style='color: {"#dc2626" if s.em_atraso_agora > 0 else "#15803d"};'>{f"Conformidade: {s.taxa_conformidade:.1f}% • {s.em_atraso_agora} atraso" if s.em_atraso_agora > 0 else f"Conformidade: {s.taxa_conformidade:.1f}% • Em dia"}</div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Painéis com Gráficos Horizontais -->
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 9px; table-layout: fixed;'>
+                <tr>
+                    <td style='width: 26%; vertical-align: top; padding: 0;'>
+                        <div class='chart-panel' style='text-align: center;'>
+                            <div class='panel-title' style='text-align: left;'>🎯 Entregue no Prazo (OTD)</div>
+                            <div style='margin: 4px 0;'>
+                                {donut_img}
+                            </div>
+                            <div style='font-size: 10px; color: #475569; font-weight: bold; margin-top: 3px;'>
+                                <span style='color: #15803d;'>✔ {s.concluidas_no_prazo} no prazo</span> &bull; <span style='color: #dc2626;'>✖ {s.concluidas_com_atraso} com atraso</span>
+                            </div>
+                        </div>
+                    </td>
+                    <td style='width: 39%; vertical-align: top; padding: 0;'>
+                        <div class='chart-panel'>
+                            <div class='panel-title'>📊 Fluxo Semanal (Entradas vs Conclusões)</div>
+                            <div style='font-size: 9px; margin-bottom: 5px; color: #64748b;'>
+                                <span style='color: #2563eb; font-weight: bold;'>■ Entradas</span> &nbsp;&bull;&nbsp; <span style='color: #16a34a; font-weight: bold;'>■ Conclusões</span>
+                            </div>
+                            {''.join(weeks_html) if weeks_html else '<em>Sem movimentação semanal</em>'}
+                        </div>
+                    </td>
+                    <td style='width: 35%; vertical-align: top; padding: 0;'>
+                        <div class='chart-panel'>
+                            <div class='panel-title'>🏭 Distribuição por Setores</div>
+                            <div style='margin-top: 4px;'>
+                                {''.join(sector_bars) if sector_bars else '<em>Sem OPs alocadas</em>'}
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </table>
+        """
+
+        if multi_page:
+            # PÁGINA 1: Bloco de Síntese Executiva que preenche a página perfeitamente
+            html += f"""
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-top: 6px; table-layout: fixed;'>
+                <tr>
+                    <td style='width: 58%; vertical-align: top; padding: 0;'>
+                        <div class='chart-panel'>
+                            <div class='panel-title'>🏁 Síntese das Entregas Finalizadas no Mês ({s.total_concluidas} OPs concluídas)</div>
+                            <table style='width: 100%; border-collapse: collapse; font-size: 9.5px;'>
+                                <thead>
+                                    <tr style='background: #e2e8f0; color: #1e293b;'>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 45px;'>OP</th>
+                                        <th style='padding: 4.5px 6px; text-align: left;'>Cliente</th>
+                                        <th style='padding: 4.5px 6px; text-align: left;'>Modelo</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 75px;'>Conclusão</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 45px;'>Ciclo</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 95px;'>Situação</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {''.join(concluded_rows) if concluded_rows else '<tr><td colspan=\"6\" style=\"text-align: center; padding: 12px; color: #64748b;\">Nenhuma OP concluída no período selecionado.</td></tr>'}
+                                </tbody>
+                            </table>
+                            <div style='font-size: 8.5px; color: #64748b; margin-top: 4px; font-style: italic;'>
+                                * Consulte o Caderno Detalhado na Página 2 para ver todas as {len(s.ops)} Ordens de Produção do mês.
+                            </div>
+                        </div>
+                    </td>
+                    <td style='width: 42%; vertical-align: top; padding: 0;'>
+                        <div class='chart-panel'>
+                            <div class='panel-title'>⚡ Diagnóstico Operacional da Fábrica</div>
+                            <table style='width: 100%; font-size: 9.5px; border-collapse: collapse;'>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Balanço do Mês:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.total_criadas} entradas vs {s.total_concluidas} saídas ({s.total_criadas - s.total_concluidas:+d})</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Taxa Entregue no Prazo (OTD):</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #16a34a;'>{s.taxa_pontualidade:.1f}% ({s.concluidas_no_prazo}/{s.total_concluidas or 1})</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Conformidade de Cronograma:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0284c7;'>{s.taxa_conformidade:.1f}%</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Ciclo Médio de Fabricação:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.lead_time_medio_dias:.1f} dias</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Volume em Produção Atual:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.em_producao_agora} OPs em linha</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Previsão de Saída no Mês:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #2563eb;'>{s.previsao_restante_mes} OPs programadas</td>
+                                </tr>
+                            </table>
+                            {alert_html}
+                        </div>
+                    </td>
+                </tr>
+            </table>
+
+            <div class='page-footer'>
+                <div style='display: table-cell;'>Produção Operacional &bull; Sistema de Gestão Industrial &bull; <strong>Página 1 de 2 (Painel Executivo)</strong></div>
+                <div style='display: table-cell; text-align: right;'>Documento gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}</div>
+            </div>
+
+            <!-- ======================================================== -->
+            <!-- PÁGINA 2: CADERNO DETALHADO DE ORDENS DE PRODUÇÃO       -->
+            <!-- ======================================================== -->
+            <div style='page-break-before: always; padding-top: 4px;'>
+                <table class='header-table'>
+                    <tr>
+                        <td style='vertical-align: middle;'>
+                            <div style='font-size: 18px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL — CADERNO DETALHADO</div>
+                            <div style='font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;'>Detalhamento Completo das {len(s.ops)} Ordens de Produção ({s.nome_mes} / {s.ano})</div>
+                        </td>
+                        <td style='vertical-align: middle; text-align: right;'>
+                            <div style='font-size: 14px; font-weight: 900; color: #1e3a8a;'>PÁGINA 2 DE 2</div>
+                            <div style='margin-top: 3px;'>{status_badge}</div>
+                        </td>
+                    </tr>
+                </table>
+
+                <table class='data'>
+                    <thead>
+                        <tr>
+                            <th style='width: 48px; text-align: center;'>OP</th>
+                            <th style='width: 165px;'>Cliente</th>
+                            <th>Modelo</th>
+                            <th style='width: 36px; text-align: center;'>Qtd</th>
+                            <th style='width: 85px;'>Setor</th>
+                            <th style='width: 72px; text-align: center;'>Início</th>
+                            <th style='width: 72px; text-align: center;'>Entrega</th>
+                            <th style='width: 72px; text-align: center;'>Conclusão</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
+                            <th style='width: 115px; text-align: center;'>Situação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(rows_html)}
+                    </tbody>
+                </table>
+
+                <div class='page-footer'>
+                    <div style='display: table-cell;'>Produção Operacional &bull; Sistema de Gestão Industrial &bull; <strong>Página 2 de 2 (Detalhamento)</strong></div>
+                    <div style='display: table-cell; text-align: right;'>Documento gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}</div>
+                </div>
+            </div>
+            """
+        else:
+            # Relatório em página única se houver poucas OPs (<= 7)
+            html += f"""
+            <div style='margin-top: 8px;'>
+                <div style='font-size: 11px; font-weight: 800; color: #0f172a; margin-bottom: 5px;'>
+                    Detalhamento das Ordens de Produção ({len(s.ops)} registros)
+                </div>
+                <table class='data'>
+                    <thead>
+                        <tr>
+                            <th style='width: 48px; text-align: center;'>OP</th>
+                            <th style='width: 165px;'>Cliente</th>
+                            <th>Modelo</th>
+                            <th style='width: 36px; text-align: center;'>Qtd</th>
+                            <th style='width: 85px;'>Setor</th>
+                            <th style='width: 72px; text-align: center;'>Início</th>
+                            <th style='width: 72px; text-align: center;'>Entrega</th>
+                            <th style='width: 72px; text-align: center;'>Conclusão</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
+                            <th style='width: 115px; text-align: center;'>Situação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {''.join(rows_html) if rows_html else '<tr><td colspan=\"10\" style=\"text-align: center; padding: 12px; color: #64748b;\">Nenhuma OP encontrada no período.</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+
+            <div class='page-footer'>
+                <div style='display: table-cell;'>Produção Operacional &bull; Sistema de Gestão Industrial &bull; <strong>Página 1 de 1</strong></div>
+                <div style='display: table-cell; text-align: right;'>Documento gerado em {datetime.now().strftime('%d/%m/%Y às %H:%M')}</div>
+            </div>
+            """
+
+        html += """
+        </body>
+        </html>
+        """
+        return html

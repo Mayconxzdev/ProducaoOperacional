@@ -15,7 +15,7 @@
 
 [Case no portfólio](https://mayconxzdev.github.io/cases/producao-operacional/) · [Executar demonstração](#executar-a-demonstração) · [Arquitetura](#arquitetura)
 
-<img src="assets/screenshots/escritorio-demo.png" alt="Tela demonstrativa do Produção Operacional no modo Escritório" width="100%">
+<img src="assets/screenshots/tela-inicial-demo.png" alt="Tela inicial do modo Demonstração, com ordens fictícias e recursos do Produção Operacional" width="100%">
 
 </div>
 
@@ -23,15 +23,17 @@
 
 ## Visão geral
 
-Criei o **Produção Operacional** para organizar as ordens de produção no escritório e oferecer uma visão coletiva na fábrica. O sistema também acompanha uma origem configurada no NAS e inclui automaticamente novas OPs nos horários definidos pela operação.
+Criei o **Produção Operacional** para organizar ordens de produção no escritório e compartilhar o andamento com a fábrica. O sistema também permite programar lembretes para a TV/Foco e consultar relatórios mensais de produção.
 
 | Aspecto | Situação atual |
 |---|---|
 | **Implantação** | Versão interna instalada em 10+ computadores e uma TV de fábrica. |
 | **Alcance** | Apoia 20+ profissionais distribuídos em nove setores produtivos, além da gestão no escritório. |
 | **Uso diário** | A TV/Foco funciona como referência coletiva para identificar novas OPs e acompanhar onde cada ordem está no processo. |
-| **Automação** | Uma estação integradora verifica documentos novos no NAS. Na implantação atual, a rotina executa de segunda a sexta às 10h e 15h. |
-| **Continuidade** | NAS somente leitura, linha de base para não reimportar documentos antigos, cache local e bloqueio de OP duplicada. |
+| **Automação** | Uma estação integradora verifica a origem configurada conforme a agenda definida pela operação. |
+| **TV/Foco** | Lembretes podem ser programados com mensagem, dia, horário, frequência e duração. |
+| **Relatórios** | A equipe escolhe o mês e exporta o relatório de produção em PDF ou Excel. |
+| **Continuidade** | Importação revisável, bloqueio de OP duplicada e cache local para leitura durante falhas transitórias. |
 | **Minha atuação** | Produto, arquitetura, interface, banco, migrações, importação, instalador, implantação, treinamento e sustentação. |
 
 ## Modos de uso
@@ -44,17 +46,33 @@ A arquitetura usa SQLite configurável, cache local para leitura, migrações, p
 
 ## Interface
 
-### Escritório
+As telas que mostram ordens vêm do modo Demonstração, com registros fictícios. Na captura do relatório mensal, os nomes de clientes foram desfocados.
 
-![Tela do modo Escritório com OPs fictícias](assets/screenshots/escritorio-demo.png)
+### Escritório — modo Demonstração
+
+![Tela inicial do modo Demonstração com 10 OPs fictícias](assets/screenshots/tela-inicial-demo.png)
 
 ### TV/Foco
 
-![Painel TV/Foco em tela cheia](assets/screenshots/tv-foco-demo.png)
+![Painel TV/Foco em tela cheia com dados de demonstração](assets/screenshots/tv-foco-demo.png)
 
 ### Setores e contraste
 
-![Personalização de setores](assets/screenshots/personalizacao-setores.png)
+![Configuração de setores, cores e contraste no modo Demonstração](assets/screenshots/personalizacao-setores-demo.png)
+
+### Lembretes na TV
+
+![Agendamento de lembrete para a TV/Foco](assets/screenshots/lembrete-agendamento-demo.png)
+
+A pessoa define a mensagem, o dia e o horário em que o aviso deve aparecer e ajusta sua frequência e duração na tela.
+
+![Preferências visuais e lembretes programados](assets/screenshots/lembretes-configuracao-demo.png)
+
+### Relatórios mensais
+
+![Relatório mensal com nomes de clientes desfocados e opções de exportação PDF e Excel](assets/screenshots/relatorio-mensal-clientes-desfocados.png)
+
+O relatório reúne indicadores, gráficos e ordens do mês selecionado. Os nomes de clientes estão desfocados nesta captura.
 
 ## O que desenvolvi
 
@@ -65,33 +83,23 @@ A arquitetura usa SQLite configurável, cache local para leitura, migrações, p
 - SQLite com repositórios, migrações e backup antes de alterações de schema;
 - cache local para manter a TV útil durante indisponibilidades transitórias da fonte;
 - importação revisável de PDF, DOCX e ODT, com OCR opcional para documentos digitalizados;
+- lembretes gerais ou ligados a uma OP, programados para aparecer na TV/Foco em dia e horário definidos;
+- relatório mensal com indicadores e gráficos, exportável em PDF vetorial ou planilha Excel;
 - empacotamento com PyInstaller e instalador Inno Setup;
 - modo Demonstração isolado;
 - tarefa agendada para descobrir apenas novas OPs em uma estrutura de pastas configurada.
 
+## Decisões e trade-offs
+
+- Mantive o aplicativo nativo para Windows e usei SQLite configurável para aproveitar as estações já disponíveis na operação. Isso simplifica a implantação local, mas exige cuidar da configuração e das atualizações em cada estação.
+- A TV/Foco guarda um cache local de leitura para continuar mostrando o último estado válido durante uma falha temporária. O cache ajuda na visualização; alterações continuam dependendo da fonte configurada.
+- Separei o modo Demonstração, com banco local próprio e ordens fictícias, para que seja possível conhecer e testar os fluxos sem alcançar o ambiente de trabalho.
+
 ## Integração automática de novas OPs
 
-A estação integradora consulta a origem configurada em dias e horários definidos pela operação. Na implantação atual, a verificação ocorre **de segunda a sexta às 10h e 15h**. Os horários são configuráveis e a edição pública mantém exemplos neutros.
+A aplicação pode procurar documentos novos em uma origem configurada pela equipe e executar a verificação na agenda definida para a estação integradora. A primeira execução registra uma linha de base; as seguintes analisam somente novos arquivos, validam os campos necessários e evitam importar números já existentes. A origem permanece somente leitura: o fluxo não move, renomeia nem apaga os arquivos.
 
-O fluxo:
-
-1. cria uma linha de base dos documentos existentes na primeira execução;
-2. nas execuções seguintes, procura somente arquivos novos;
-3. extrai número da OP, cliente, modelo, quantidade, tensão e prazo;
-4. rejeita registros incompletos ou números já existentes;
-5. grava a nova OP no banco para consulta no escritório e exibição na TV;
-6. não move, renomeia ou apaga arquivos do NAS.
-
-```mermaid
-flowchart LR
-    NAS["NAS somente leitura"] --> DISC["Descoberta agendada"]
-    DISC --> VALID["Validação + anti-duplicidade"]
-    VALID --> DB[("SQLite configurado")]
-    DB --> OFFICE["10+ computadores"]
-    DB --> TV["TV/Foco"]
-    TV --> TEAM["20+ profissionais · 9 setores"]
-    TV -. falha transitória .-> CACHE[("Cache local")]
-```
+Os caminhos, horários e demais valores operacionais são definidos localmente e não fazem parte desta documentação pública.
 
 ## Arquitetura
 
@@ -139,8 +147,8 @@ O instalador suporta os perfis Escritório, TV/Foco e Demonstração e permite d
 
 ## Estado e limites
 
-- OPs, documentos, caminhos, configurações, credenciais e bancos empresariais não fazem parte do repositório;
-- as capturas usam dados fictícios;
+- bancos empresariais, documentos, caminhos e configurações reais não fazem parte do repositório;
+- as telas de demonstração usam OPs fictícias; os nomes de clientes na captura do relatório mensal foram desfocados;
 - o produto atual atende a uma operação interna; uma expansão multiunidade exigiria identidade corporativa, telemetria, banco transacional central e observabilidade;
 - OCR é opcional e toda importação permanece revisável.
 

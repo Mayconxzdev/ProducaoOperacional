@@ -40,8 +40,17 @@ from PySide6.QtWidgets import (
 )
 
 from kanban_app import __version__
-from kanban_app.application.dto import OpListDTO, SectorDTO
-from kanban_app.infrastructure.config import AppConfig, OpDiscoveryConfig, save_op_discovery_config
+from kanban_app.application.dto import OpListDTO, OpReminderDTO, SectorDTO
+from kanban_app.presentation.sound_alert import SOUND_TYPE_LABELS, play_alert_sound
+from kanban_app.presentation.widgets.op_reminder_dialog import OpReminderDialog
+from kanban_app.infrastructure.config import (
+    AppConfig,
+    OP_DISCOVERY_SHARED_RULE_KEY,
+    OpDiscoveryConfig,
+    apply_shared_op_discovery_rule,
+    op_discovery_rule_payload,
+    save_op_discovery_config,
+)
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
 from kanban_app.presentation.tv_settings import (
@@ -205,6 +214,7 @@ class PersonalizationDialog(QDialog):
         self._build_deadlines_tab()
         self._build_op_discovery_tab()
         self._build_tv_tab()
+        self._build_tv_reminders_tab()
         self._build_email_tab()
         self._build_diagnostics_tab()
 
@@ -421,10 +431,15 @@ class PersonalizationDialog(QDialog):
         form = QFormLayout(panel)
         form.setContentsMargins(22, 22, 22, 22)
         form.setSpacing(14)
-        discovery = self.config.op_discovery
-        self.op_discovery_enabled = QCheckBox("Permitir que a tarefa agendada importe novas OPs nesta instalação", panel)
-        self.op_discovery_enabled.setChecked(discovery.enabled)
-        self.op_discovery_enabled.setToolTip("A tarefa do Windows ainda precisa ser instalada pela caixa opcional do setup.")
+        self._station_op_discovery = self.config.op_discovery
+        self._shared_op_discovery = apply_shared_op_discovery_rule(
+            self._station_op_discovery,
+            self.repository.get_setting(OP_DISCOVERY_SHARED_RULE_KEY, None),
+        )
+        discovery = self._shared_op_discovery
+        self.op_discovery_enabled = QCheckBox("Este computador é a estação integradora", panel)
+        self.op_discovery_enabled.setChecked(self._station_op_discovery.enabled)
+        self.op_discovery_enabled.setToolTip("Ative somente no PC que executará a Tarefa Agendada do Windows.")
         self.op_discovery_roots = QPlainTextEdit(panel)
         self.op_discovery_roots.setPlainText("\n".join(str(item) for item in discovery.source_root_candidates))
         self.op_discovery_roots.setPlaceholderText("Um caminho por linha. Ex.: \\\\SERVIDOR\\Compartilhamento")
@@ -473,7 +488,18 @@ class PersonalizationDialog(QDialog):
         )
         schedule.setWordWrap(True)
         schedule.setObjectName("helpText")
-        form.addRow("Ativação", self.op_discovery_enabled)
+        self.op_discovery_task_status = QLabel(panel)
+        self.op_discovery_task_status.setWordWrap(True)
+        self.op_discovery_task_status.setObjectName("helpText")
+        shared_rule = QLabel(
+            "Os caminhos, grupos, formatos, dias e horários abaixo são compartilhados entre todos os computadores. "
+            "Você pode alterá-los de qualquer PC; a estação integradora aplica a nova agenda automaticamente enquanto estiver aberta.",
+            panel,
+        )
+        shared_rule.setWordWrap(True)
+        shared_rule.setObjectName("helpText")
+        form.addRow("Estação integradora", self.op_discovery_enabled)
+        form.addRow("Regra compartilhada", shared_rule)
         form.addRow("Caminhos do NAS (prioridade/fallback)", self.op_discovery_roots)
         form.addRow("Raiz relativa de produção", self.op_discovery_relative)
         form.addRow("Pastas/grupos monitorados", self.op_discovery_groups)
@@ -481,16 +507,18 @@ class PersonalizationDialog(QDialog):
         form.addRow("Dias de execução", days_widget)
         form.addRow("Horários de execução", self.op_discovery_times)
         form.addRow("Regra de entrada", schedule)
+        form.addRow("Situação da tarefa", self.op_discovery_task_status)
         layout.addWidget(panel)
         note = QLabel(
             "Alterar os caminhos, grupos ou formatos cria uma nova linha de base para essa regra: documentos já presentes "
-            "nessas novas pastas serão registrados sem leitura e sem importação. Marque a opção do setup somente em um PC.",
+            "nessas novas pastas serão registrados sem leitura e sem importação. Ative a integração em somente um PC por vez.",
             tab,
         )
         note.setWordWrap(True)
         note.setObjectName("helpText")
         layout.addWidget(note)
         layout.addStretch(1)
+        self._set_op_discovery_task_status(self._station_op_discovery.enabled)
         self.tabs.addTab(tab, "Integração de OPs")
 
     # ------------------------------------------------------------------
@@ -859,6 +887,247 @@ class PersonalizationDialog(QDialog):
             color.color_changed.connect(self._refresh_tv_preview)
         self.tv_show_grid.toggled.connect(self._refresh_tv_preview)
         return page
+
+    # ------------------------------------------------------------------
+    # Lembretes da TV / Foco
+    # ------------------------------------------------------------------
+    def _build_tv_reminders_tab(self) -> None:
+        tab = QWidget(self)
+        settings = self._initial_tv_settings
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(14)
+
+        intro = QLabel(
+            "Configure o visual dos cards de lembretes na TV e gerencie os horários programados. "
+            "Qualquer alteração visual ou de agendamento é sincronizada com toda a fábrica.",
+            tab,
+        )
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal, tab)
+
+        # Painel da Esquerda: Estilo Visual do Card de Lembrete
+        left_panel = QFrame(splitter)
+        left_layout = QVBoxLayout(left_panel)
+        left_layout.setContentsMargins(8, 8, 8, 8)
+        left_layout.setSpacing(12)
+
+        style_group = QGroupBox("Aparência do Card na TV", left_panel)
+        form = QFormLayout(style_group)
+        form.setSpacing(10)
+
+        self.reminder_enabled = QCheckBox("Ativar notificações de lembrete na TV", style_group)
+        self.reminder_enabled.setChecked(bool(settings.get("reminder_enabled", True)))
+        form.addRow(self.reminder_enabled)
+
+        self.reminder_card_background = ColorInput(str(settings.get("reminder_card_background", "#0f172a")), style_group)
+        self.reminder_card_foreground = ColorInput(str(settings.get("reminder_card_foreground", "#f8fafc")), style_group)
+        self.reminder_card_border = ColorInput(str(settings.get("reminder_card_border", "#38bdf8")), style_group)
+
+        form.addRow("Cor de fundo do card", self.reminder_card_background)
+        form.addRow("Cor do texto", self.reminder_card_foreground)
+        form.addRow("Cor da borda / destaque", self.reminder_card_border)
+
+        self.reminder_font_scale = QSpinBox(style_group)
+        self.reminder_font_scale.setRange(60, 200)
+        self.reminder_font_scale.setValue(int(settings.get("reminder_font_scale_percent", 100)))
+        self.reminder_font_scale.setSuffix("%")
+        form.addRow("Tamanho da fonte", self.reminder_font_scale)
+
+        self.reminder_width = QSpinBox(style_group)
+        self.reminder_width.setRange(30, 95)
+        self.reminder_width.setValue(int(settings.get("reminder_width_percent", 65)))
+        self.reminder_width.setSuffix("% da tela")
+        form.addRow("Largura do card", self.reminder_width)
+
+        self.reminder_default_duration = QSpinBox(style_group)
+        self.reminder_default_duration.setRange(5, 300)
+        self.reminder_default_duration.setValue(int(settings.get("reminder_default_duration_seconds", 30)))
+        self.reminder_default_duration.setSuffix(" segundos")
+        form.addRow("Tempo padrão na tela", self.reminder_default_duration)
+
+        self.reminder_pause_pagination = QCheckBox("Pausar rotação de páginas enquanto exibido", style_group)
+        self.reminder_pause_pagination.setChecked(bool(settings.get("reminder_pause_pagination", True)))
+        form.addRow(self.reminder_pause_pagination)
+
+        self.reminder_sound_enabled = QCheckBox("Emitir alerta sonoro suave na TV (HDMI) ao exibir lembrete", style_group)
+        self.reminder_sound_enabled.setChecked(bool(settings.get("reminder_sound_enabled", True)))
+        form.addRow(self.reminder_sound_enabled)
+
+        sound_row = QHBoxLayout()
+        self.reminder_sound_type = QComboBox(style_group)
+        for s_key, s_label in SOUND_TYPE_LABELS.items():
+            self.reminder_sound_type.addItem(s_label, s_key)
+        current_sound = str(settings.get("reminder_sound_type", "chime"))
+        idx = self.reminder_sound_type.findData(current_sound)
+        if idx >= 0:
+            self.reminder_sound_type.setCurrentIndex(idx)
+
+        btn_test_sound = QPushButton("🔊 Ouvir Som", style_group)
+        btn_test_sound.setToolTip("Toca o som de alerta agora para ajustar o volume da TV HDMI")
+        btn_test_sound.clicked.connect(lambda: play_alert_sound(self.reminder_sound_type.currentData()))
+
+        sound_row.addWidget(self.reminder_sound_type, 1)
+        sound_row.addWidget(btn_test_sound)
+        form.addRow("Tipo de alerta sonoro", sound_row)
+
+        left_layout.addWidget(style_group)
+
+        test_box = QVBoxLayout()
+        test_label = QLabel("Visualização rápida na TV:", left_panel)
+        test_label.setStyleSheet("font-weight: bold; color: #64748b; margin-top: 4px;")
+        test_box.addWidget(test_label)
+
+        test_btns = QHBoxLayout()
+        btn_test_reminder = QPushButton("👁️ 1 Card", left_panel)
+        btn_test_reminder.setStyleSheet("font-weight: bold; background: #0284c7; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_reminder.clicked.connect(lambda: self._test_reminder_on_tv(count=1))
+
+        btn_test_multiple = QPushButton("👥 2 Lado a Lado", left_panel)
+        btn_test_multiple.setStyleSheet("font-weight: bold; background: #0369a1; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_multiple.clicked.connect(lambda: self._test_reminder_on_tv(count=2))
+
+        btn_test_grid = QPushButton("▦ 6 em Grade (3x2)", left_panel)
+        btn_test_grid.setStyleSheet("font-weight: bold; background: #075985; color: white; padding: 6px 10px; border-radius: 6px;")
+        btn_test_grid.clicked.connect(lambda: self._test_reminder_on_tv(count=6))
+
+        test_btns.addWidget(btn_test_reminder)
+        test_btns.addWidget(btn_test_multiple)
+        test_btns.addWidget(btn_test_grid)
+        test_box.addLayout(test_btns)
+        left_layout.addLayout(test_box)
+        left_layout.addStretch(1)
+
+        splitter.addWidget(left_panel)
+
+        # Painel da Direita: Gerenciamento dos Lembretes Cadastrados
+        right_panel = QFrame(splitter)
+        right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(8, 8, 8, 8)
+        right_layout.setSpacing(10)
+
+        manage_group = QGroupBox("Lembretes Programados", right_panel)
+        m_layout = QVBoxLayout(manage_group)
+
+        self.reminder_table = QTableWidget(manage_group)
+        self.reminder_table.setColumnCount(6)
+        self.reminder_table.setHorizontalHeaderLabels([
+            "OP", "Cliente", "Mensagem / Pendência", "Horário", "Duração", "Status"
+        ])
+        self.reminder_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.reminder_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.reminder_table.horizontalHeader().setStretchLastSection(True)
+        self.reminder_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        m_layout.addWidget(self.reminder_table)
+
+        table_actions = QHBoxLayout()
+        btn_new_reminder = QPushButton("Novo lembrete", manage_group)
+        btn_edit_reminder = QPushButton("Editar", manage_group)
+        btn_toggle_reminder = QPushButton("Ativar / Pausar", manage_group)
+        btn_delete_reminder = QPushButton("Excluir", manage_group)
+
+        btn_new_reminder.clicked.connect(self._add_new_reminder)
+        btn_edit_reminder.clicked.connect(self._edit_selected_reminder)
+        btn_toggle_reminder.clicked.connect(self._toggle_selected_reminder)
+        btn_delete_reminder.clicked.connect(self._delete_selected_reminder)
+
+        table_actions.addWidget(btn_new_reminder)
+        table_actions.addWidget(btn_edit_reminder)
+        table_actions.addWidget(btn_toggle_reminder)
+        table_actions.addWidget(btn_delete_reminder)
+        table_actions.addStretch(1)
+        m_layout.addLayout(table_actions)
+
+        right_layout.addWidget(manage_group)
+        splitter.addWidget(right_panel)
+
+        splitter.setStretchFactor(0, 1)
+        splitter.setStretchFactor(1, 2)
+        layout.addWidget(splitter, 1)
+
+        self._reminders_list: list[OpReminderDTO] = []
+        self._load_reminders_table()
+        self.tabs.addTab(tab, "Lembretes de TV")
+
+    def _load_reminders_table(self) -> None:
+        self._reminders_list = self.repository.list_reminders()
+        self.reminder_table.setRowCount(len(self._reminders_list))
+        for row, r in enumerate(self._reminders_list):
+            self.reminder_table.setItem(row, 0, QTableWidgetItem(r.numero_op or "Geral"))
+            self.reminder_table.setItem(row, 1, QTableWidgetItem(r.cliente or "-"))
+            self.reminder_table.setItem(row, 2, QTableWidgetItem(r.mensagem))
+            self.reminder_table.setItem(row, 3, QTableWidgetItem(r.horario))
+            self.reminder_table.setItem(row, 4, QTableWidgetItem(f"{r.duracao_segundos}s"))
+            status_item = QTableWidgetItem("Ativo" if r.ativo else "Pausado")
+            if r.ativo:
+                status_item.setForeground(QColor("#22c55e"))
+            else:
+                status_item.setForeground(QColor("#94a3b8"))
+            self.reminder_table.setItem(row, 5, status_item)
+
+    def _selected_reminder(self) -> OpReminderDTO | None:
+        row = self.reminder_table.currentRow()
+        if 0 <= row < len(self._reminders_list):
+            return self._reminders_list[row]
+        return None
+
+    def _add_new_reminder(self) -> None:
+        dialog = OpReminderDialog(
+            self,
+            repository=self.repository,
+            station_id=self.station_id,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._load_reminders_table()
+
+    def _edit_selected_reminder(self) -> None:
+        reminder = self._selected_reminder()
+        if not reminder:
+            QMessageBox.information(self, "Selecionar Lembrete", "Selecione um lembrete na tabela para editar.")
+            return
+        dialog = OpReminderDialog(
+            self,
+            repository=self.repository,
+            station_id=self.station_id,
+            reminder=reminder,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self._load_reminders_table()
+
+    def _toggle_selected_reminder(self) -> None:
+        reminder = self._selected_reminder()
+        if not reminder:
+            QMessageBox.information(self, "Selecionar Lembrete", "Selecione um lembrete na tabela para ativar ou pausar.")
+            return
+        self.repository.toggle_reminder(reminder.id)
+        self._load_reminders_table()
+
+    def _delete_selected_reminder(self) -> None:
+        reminder = self._selected_reminder()
+        if not reminder:
+            QMessageBox.information(self, "Selecionar Lembrete", "Selecione um lembrete na tabela para excluir.")
+            return
+        if (
+            QMessageBox.question(
+                self,
+                "Excluir Lembrete",
+                f"Deseja realmente excluir o lembrete da OP {reminder.numero_op or 'Geral'} ({reminder.horario})?",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        self.repository.delete_reminder(reminder.id)
+        self._load_reminders_table()
+
+    def _test_reminder_on_tv(self, count: int = 1) -> None:
+        if hasattr(self, "tv_preview") and self.tv_preview:
+            self.tv_preview.apply_settings(self._current_tv_settings())
+            self.tv_preview.trigger_test_reminder(duration_seconds=8, count=count)
+        if hasattr(self, "_large_preview") and self._large_preview and self._large_preview.isVisible():
+            self._large_preview.apply_settings(self._current_tv_settings())
+            self._large_preview.trigger_test_reminder(duration_seconds=8, count=count)
 
     # ------------------------------------------------------------------
     # E-mail e diagnóstico
@@ -1337,6 +1606,16 @@ class PersonalizationDialog(QDialog):
             "header_foreground": self.tv_header_foreground.text(),
             "screen_background": self.tv_screen_background.text(),
             "grid_color": self.tv_grid_color.text(),
+            "reminder_enabled": self.reminder_enabled.isChecked() if hasattr(self, "reminder_enabled") else bool(self._initial_tv_settings.get("reminder_enabled", True)),
+            "reminder_card_background": self.reminder_card_background.text() if hasattr(self, "reminder_card_background") else str(self._initial_tv_settings.get("reminder_card_background", "#0f172a")),
+            "reminder_card_foreground": self.reminder_card_foreground.text() if hasattr(self, "reminder_card_foreground") else str(self._initial_tv_settings.get("reminder_card_foreground", "#f8fafc")),
+            "reminder_card_border": self.reminder_card_border.text() if hasattr(self, "reminder_card_border") else str(self._initial_tv_settings.get("reminder_card_border", "#38bdf8")),
+            "reminder_font_scale_percent": self.reminder_font_scale.value() if hasattr(self, "reminder_font_scale") else int(self._initial_tv_settings.get("reminder_font_scale_percent", 100)),
+            "reminder_width_percent": self.reminder_width.value() if hasattr(self, "reminder_width") else int(self._initial_tv_settings.get("reminder_width_percent", 65)),
+            "reminder_pause_pagination": self.reminder_pause_pagination.isChecked() if hasattr(self, "reminder_pause_pagination") else bool(self._initial_tv_settings.get("reminder_pause_pagination", True)),
+            "reminder_default_duration_seconds": self.reminder_default_duration.value() if hasattr(self, "reminder_default_duration") else int(self._initial_tv_settings.get("reminder_default_duration_seconds", 30)),
+            "reminder_sound_enabled": self.reminder_sound_enabled.isChecked() if hasattr(self, "reminder_sound_enabled") else bool(self._initial_tv_settings.get("reminder_sound_enabled", True)),
+            "reminder_sound_type": self.reminder_sound_type.currentData() if hasattr(self, "reminder_sound_type") else str(self._initial_tv_settings.get("reminder_sound_type", "chime")),
         }
         return normalize_tv_settings(values)
 
@@ -1460,6 +1739,9 @@ class PersonalizationDialog(QDialog):
             self.tv_header_foreground,
             self.tv_screen_background,
             self.tv_grid_color,
+            self.reminder_card_background,
+            self.reminder_card_foreground,
+            self.reminder_card_border,
         )
         if any(not field.is_valid() for field in color_fields):
             QMessageBox.warning(self, "Cores", "Todas as cores precisam estar no formato válido #RRGGBB.")
@@ -1474,7 +1756,7 @@ class PersonalizationDialog(QDialog):
             self.tv_control_tabs.setCurrentIndex(3)
             return
         try:
-            discovery = self._op_discovery_from_controls()
+            shared_discovery = self._op_discovery_from_controls()
         except ValueError as exc:
             QMessageBox.warning(self, "Integração de OPs", str(exc))
             self.tabs.setCurrentIndex(self.tabs.indexOf(self.op_discovery_tab))
@@ -1493,7 +1775,10 @@ class PersonalizationDialog(QDialog):
         }
         values.update({f"tv.{key}": value for key, value in settings.items()})
         try:
-            save_op_discovery_config(self.config.config_path, discovery)
+            station_discovery = replace(shared_discovery, enabled=self.op_discovery_enabled.isChecked())
+            save_op_discovery_config(self.config.config_path, station_discovery)
+            if shared_discovery.source_root_candidates:
+                values[OP_DISCOVERY_SHARED_RULE_KEY] = op_discovery_rule_payload(shared_discovery)
             self.repository.set_settings(values, station_id=self.station_id)
         except Exception as exc:
             QMessageBox.warning(self, "Não foi possível salvar", str(exc))
@@ -1503,7 +1788,7 @@ class PersonalizationDialog(QDialog):
             self.runtime_store.save_theme_mode(mode)
             self.office_theme_changed.emit(mode)
         self.tv_settings_changed.emit(settings)
-        self._refresh_installed_op_task(discovery)
+        self._refresh_installed_op_task(station_discovery)
         self.accept()
 
     def _op_discovery_from_controls(self) -> OpDiscoveryConfig:
@@ -1522,21 +1807,21 @@ class PersonalizationDialog(QDialog):
         schedule_days = tuple(key for key, checkbox in self.op_discovery_days.items() if checkbox.isChecked())
         schedule_times = tuple(value.strip() for value in self.op_discovery_times.toPlainText().splitlines() if value.strip())
         if self.op_discovery_enabled.isChecked() and not roots:
-            raise ValueError("Informe ao menos um caminho de NAS para ativar a integração.")
-        if self.op_discovery_enabled.isChecked() and not groups:
-            raise ValueError("Informe ao menos uma pasta/grupo de produção para ativar a integração.")
-        if self.op_discovery_enabled.isChecked() and not extensions:
-            raise ValueError("Selecione ao menos um formato de documento para monitorar.")
-        if self.op_discovery_enabled.isChecked() and not schedule_days:
-            raise ValueError("Selecione ao menos um dia de execução para ativar a integração.")
+            raise ValueError("Informe ao menos um caminho de NAS para marcar este computador como estação integradora.")
+        if roots and not groups:
+            raise ValueError("Informe ao menos uma pasta/grupo de produção para a regra compartilhada.")
+        if roots and not extensions:
+            raise ValueError("Selecione ao menos um formato de documento para a regra compartilhada.")
+        if roots and not schedule_days:
+            raise ValueError("Selecione ao menos um dia de execução para a regra compartilhada.")
         invalid_times = [value for value in schedule_times if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value)]
-        if self.op_discovery_enabled.isChecked() and (not schedule_times or invalid_times):
-            raise ValueError("Informe um ou mais horários válidos no formato HH:MM.")
+        if roots and (not schedule_times or invalid_times):
+            raise ValueError("Informe um ou mais horários válidos no formato HH:MM para a regra compartilhada.")
         if not str(relative) or relative.is_absolute() or ".." in relative.parts:
             raise ValueError("A raiz de produção deve ser um caminho relativo, sem '..' e sem unidade de disco.")
-        current = self.config.op_discovery
+        current = self._shared_op_discovery
         return OpDiscoveryConfig(
-            enabled=self.op_discovery_enabled.isChecked(),
+            enabled=True,
             source_root_candidates=roots,
             production_relative_path=relative,
             groups=groups or current.groups,
@@ -1547,19 +1832,55 @@ class PersonalizationDialog(QDialog):
             worker_lease_minutes=current.worker_lease_minutes,
         )
 
-    def _refresh_installed_op_task(self, discovery: OpDiscoveryConfig) -> None:
-        """Atualiza a tarefa apenas no aplicativo empacotado e já instalado.
+    def _set_op_discovery_task_status(self, enabled: bool, detail: str = "") -> None:
+        if detail:
+            text = detail
+        elif not enabled:
+            text = "Desativada. Nenhuma tarefa será executada nesta instalação."
+        elif getattr(sys, "frozen", False):
+            if self._op_discovery_task_exists():
+                text = "Ativa. Existe uma Tarefa Agendada nesta instalação; ao salvar, ela será atualizada com os dias e horários informados."
+            else:
+                text = "Ativa, mas a Tarefa Agendada ainda não existe. Ao salvar, ela será criada nesta instalação."
+        else:
+            text = "Ativada na configuração de desenvolvimento. A criação da tarefa ocorre no aplicativo instalado."
+        self.op_discovery_task_status.setText(text)
+        self.op_discovery_task_status.setObjectName("successLabel" if enabled and not detail else "helpText")
+        self.op_discovery_task_status.style().unpolish(self.op_discovery_task_status)
+        self.op_discovery_task_status.style().polish(self.op_discovery_task_status)
 
-        A edição em código-fonte/testes não toca no Agendador do Windows. Em uma
-        instalação real, a ausência da tarefa é intencional: ela só é criada pela
-        opção independente do setup.
+    @staticmethod
+    def _op_discovery_task_exists() -> bool:
+        try:
+            result = subprocess.run(
+                ["schtasks.exe", "/Query", "/TN", "ProducaoOperacional-ImportarNovasOPs"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return result.returncode == 0
+
+    def _refresh_installed_op_task(self, discovery: OpDiscoveryConfig) -> None:
+        """Cria, atualiza ou remove a tarefa no aplicativo empacotado.
+
+        O setup continua oferecendo esta opção, porém a personalização não exige
+        reinstalação: ativar e salvar nesta tela é suficiente para esta estação.
         """
 
         if not getattr(sys, "frozen", False):
+            self._set_op_discovery_task_status(discovery.enabled)
             return
         automation_dir = Path(sys.executable).resolve().parent / "automation"
         script = automation_dir / ("install_op_discovery_task.ps1" if discovery.enabled else "remove_op_discovery_task.ps1")
         if not script.is_file():
+            self._set_op_discovery_task_status(
+                discovery.enabled,
+                "A configuração foi salva, mas os scripts da automação não estão instalados. Atualize o aplicativo com o novo setup.",
+            )
+            QMessageBox.warning(self, "Integração de OPs", self.op_discovery_task_status.text())
             return
         arguments = [
             "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
@@ -1568,16 +1889,30 @@ class PersonalizationDialog(QDialog):
             arguments.extend([
                 "-AppExecutable", str(Path(sys.executable).resolve()),
                 "-ConfigPath", str(self.config.config_path),
-                "-RequireExisting",
+                "-EnableIntegration",
             ])
         try:
             completed = subprocess.run(arguments, capture_output=True, text=True, timeout=25, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
-            QMessageBox.warning(self, "Integração de OPs", f"A configuração foi salva, mas não foi possível atualizar a tarefa do Windows: {exc}")
+            message = f"A configuração foi salva, mas não foi possível atualizar a tarefa do Windows: {exc}"
+            self._set_op_discovery_task_status(discovery.enabled, message)
+            QMessageBox.warning(self, "Integração de OPs", message)
             return
         if completed.returncode != 0:
             detail = (completed.stderr or completed.stdout or "Erro desconhecido").strip()
-            QMessageBox.warning(self, "Integração de OPs", f"A configuração foi salva, mas a tarefa do Windows não foi atualizada: {detail}")
+            message = f"A configuração foi salva, mas a tarefa do Windows não foi atualizada: {detail}"
+            self._set_op_discovery_task_status(discovery.enabled, message)
+            QMessageBox.warning(self, "Integração de OPs", message)
+            return
+        if discovery.enabled:
+            self._set_op_discovery_task_status(True, "Ativa. A Tarefa Agendada do Windows foi criada ou atualizada com os dias e horários salvos.")
+            QMessageBox.information(
+                self,
+                "Integração de OPs ativa",
+                "A Tarefa Agendada foi criada ou atualizada nesta instalação com os dias e horários salvos.",
+            )
+        else:
+            self._set_op_discovery_task_status(False, "Desativada. A Tarefa Agendada do Windows foi removida desta instalação.")
 
     def _read_tv_settings(self) -> dict[str, object]:
         defaults = default_tv_settings()

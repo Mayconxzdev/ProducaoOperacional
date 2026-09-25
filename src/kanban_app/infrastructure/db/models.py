@@ -62,7 +62,9 @@ class CheckEntryModel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     op_id: Mapped[int] = mapped_column(ForeignKey("ops.id", ondelete="CASCADE"), nullable=False, index=True)
     field_key: Mapped[str] = mapped_column(String(120), nullable=False)
-    state: Mapped[str] = mapped_column(String(24), nullable=False, default="NAO_INFORMADO")
+    # SQLite não restringia o tamanho do String anterior, mas Text deixa a
+    # intenção explícita para novos bancos: cada item é uma anotação livre.
+    state: Mapped[str] = mapped_column(Text, nullable=False, default="")
     station_id: Mapped[str] = mapped_column(String(120), nullable=False, default="")
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
 
@@ -128,4 +130,27 @@ class AppRunLockModel(Base):
     lock_key: Mapped[str] = mapped_column(String(160), primary_key=True)
     owner_id: Mapped[str] = mapped_column(String(160), nullable=False, default="")
     lease_until: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class OpReminderModel(Base):
+    """Lembrete programado para exibição em destaque (overlay) na TV/Foco."""
+
+    __tablename__ = "op_reminders"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    op_id: Mapped[int | None] = mapped_column(ForeignKey("ops.id", ondelete="CASCADE"), nullable=True, index=True)
+    numero_op: Mapped[str] = mapped_column(String(80), nullable=False, default="", index=True)
+    cliente: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    modelo: Mapped[str] = mapped_column(String(240), nullable=False, default="")
+    mensagem: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    data_inicio: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    data_fim: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    horario: Mapped[str] = mapped_column(String(8), nullable=False, default="10:00")
+    duracao_segundos: Mapped[int] = mapped_column(Integer, nullable=False, default=30)
+    tipo_recorrencia: Mapped[str] = mapped_column(String(20), nullable=False, default="ONCE")
+    dias_semana: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
+    ativo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, index=True)
+    created_by_station: Mapped[str] = mapped_column(String(80), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utc_now, onupdate=utc_now)

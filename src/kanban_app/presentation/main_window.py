@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import replace
 from datetime import date, datetime
+from pathlib import Path
 
 from PySide6.QtCore import QThreadPool, QTimer
 from PySide6.QtGui import QAction, QGuiApplication
@@ -28,12 +32,21 @@ from kanban_app.presentation.widgets.background_task import BackgroundTask
 from kanban_app.presentation.widgets.history_dialog import HistoryDialog
 from kanban_app.presentation.widgets.import_batch_dialog import ImportBatchDialog
 from kanban_app.presentation.widgets.op_form_dialog import OpFormDialog, STATUS_LABELS
+from kanban_app.presentation.widgets.op_reminder_dialog import OpReminderDialog
 from kanban_app.presentation.widgets.op_list_view_widget import OpListViewWidget
 from kanban_app.presentation.widgets.personalization_dialog import PersonalizationDialog
+from kanban_app.presentation.widgets.report_dialog import MonthlyReportDialog
 from kanban_app.presentation.widgets.tv_focus_window import TvFocusWindow
 from kanban_app.presentation.tv_settings import default_tv_settings, normalize_tv_settings
 from kanban_app.presentation.theme import apply_theme
 from kanban_app.infrastructure.logging_setup import log_path
+from kanban_app.infrastructure.config import (
+    OP_DISCOVERY_SHARED_RULE_KEY,
+    apply_shared_op_discovery_rule,
+    load_config,
+    op_discovery_rule_payload,
+    save_op_discovery_config,
+)
 
 
 class MainWindow(QMainWindow):
@@ -61,6 +74,8 @@ class MainWindow(QMainWindow):
             pass
         self._deadline_email_hour = "08:00"
         self._last_alert_minute = ""
+        self._op_discovery_rule_signature = ""
+        self._op_discovery_sync_running = False
         self.list_view = OpListViewWidget(self)
         self.setCentralWidget(self.list_view)
         self._build_toolbar()
@@ -89,6 +104,8 @@ class MainWindow(QMainWindow):
             ("Nova OP", self._new_op),
             ("Importar OP", self._import_ops),
             ("Histórico", self._open_history),
+            ("⏰ Lembrete na TV", self._open_reminder_scheduler),
+            ("📊 Relatórios", self._open_reports),
             ("Personalização", self._open_personalization),
             ("Abrir modo TV/Foco", self._open_tv),
         ):
@@ -127,15 +144,26 @@ class MainWindow(QMainWindow):
             "deadline.warning_days": self._deadline_rules.get("warning_days", 14),
             "deadline.critical_days": self._deadline_rules.get("critical_days", 7),
             "deadline.email_hour": self._deadline_email_hour,
+            OP_DISCOVERY_SHARED_RULE_KEY: op_discovery_rule_payload(self.container.config.op_discovery),
         }
         defaults.update({f"tv.{name}": value for name, value in tv_defaults.items()})
-        return self.container.repository.read_shared_snapshot(
+        ops, values, database_token = self.container.repository.read_shared_snapshot(
             defaults.keys(),
             defaults=defaults,
         )
+        # A configuração local pode estar sendo gravada pela janela de
+        # personalização neste exato instante. Nesse intervalo curto, mantém
+        # a última configuração em memória e não trata a atualização visual
+        # como uma falha de conexão com o banco/NAS.
+        try:
+            station_discovery = load_config(self.container.config.config_path).op_discovery
+        except Exception:
+            station_discovery = self.container.config.op_discovery
+        reminders = self.container.repository.list_reminders(active_only=True)
+        return ops, values, database_token, station_discovery, reminders
 
     def _apply_refresh(self, result) -> None:
-        ops, values, database_token = result
+        ops, values, database_token, station_discovery, reminders = result
         warning_color = str(values.get("deadline.warning_color") or "#f9a8d4")
         critical_color = str(values.get("deadline.critical_color") or "#ef4444")
         try:
@@ -172,13 +200,64 @@ class MainWindow(QMainWindow):
             self.container.runtime_store.save_cache(ops)
             self.list_view.set_ops(ops)
         self._apply_shared_colors()
+        self._sync_integrator_schedule_if_needed(station_discovery, values.get(OP_DISCOVERY_SHARED_RULE_KEY))
         if self._tv_window:
             if settings_changed:
                 self._tv_window.apply_settings(self._tv_settings)
             if data_changed:
                 self._tv_window.set_ops(ops)
+            self._tv_window.set_reminders(reminders)
             self._tv_window.set_offline(False)
             self._apply_shared_colors()
+
+    def _sync_integrator_schedule_if_needed(self, station_discovery, shared_rule: object) -> None:
+        """Espelha uma alteração compartilhada na tarefa do PC integrador.
+
+        A consulta acontece junto da atualização normal do painel; a Tarefa
+        Agendada só é alterada quando a regra muda. Não há varredura de OPs
+        neste timer.
+        """
+
+        if not station_discovery.enabled or self._op_discovery_sync_running:
+            return
+        shared_discovery = apply_shared_op_discovery_rule(station_discovery, shared_rule)
+        signature = json.dumps(op_discovery_rule_payload(shared_discovery), sort_keys=True, ensure_ascii=False)
+        if signature == self._op_discovery_rule_signature:
+            return
+        self._op_discovery_rule_signature = signature
+        self._op_discovery_sync_running = True
+
+        def synchronize() -> None:
+            local_discovery = replace(shared_discovery, enabled=True)
+            save_op_discovery_config(self.container.config.config_path, local_discovery)
+            if not getattr(sys, "frozen", False):
+                return
+            script = Path(sys.executable).resolve().parent / "automation" / "install_op_discovery_task.ps1"
+            if not script.is_file():
+                raise RuntimeError("Os scripts de automação não estão instalados; atualize o aplicativo com o novo setup.")
+            result = subprocess.run(
+                [
+                    "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script),
+                    "-AppExecutable", str(Path(sys.executable).resolve()),
+                    "-ConfigPath", str(self.container.config.config_path),
+                    "-EnableIntegration",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=25,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise RuntimeError((result.stderr or result.stdout or "Falha ao atualizar a Tarefa Agendada.").strip())
+
+        def completed(_result) -> None:
+            self._op_discovery_sync_running = False
+
+        def failed(error: str) -> None:
+            self._op_discovery_sync_running = False
+            self.statusBar().showMessage(f"A agenda compartilhada não foi aplicada nesta estação: {error}")
+
+        self._run_task(synchronize, completed, failed)
 
     def _refresh_failed(self, error: str) -> None:
         self._refresh_running = False
@@ -217,7 +296,15 @@ class MainWindow(QMainWindow):
 
         def show(result) -> None:
             initial, sectors, voltages, detail = result
-            dialog = OpFormDialog(sectors=sectors, voltages=voltages, initial=initial, read_only=read_only, parent=self)
+            dialog = OpFormDialog(
+                sectors=sectors,
+                voltages=voltages,
+                initial=initial,
+                read_only=read_only,
+                repository=self.container.repository,
+                station_id=self.container.station_id,
+                parent=self,
+            )
             if dialog.exec() != QDialog.DialogCode.Accepted or read_only:
                 return
             self._save_form(dialog.form_value(), detail)
@@ -243,18 +330,44 @@ class MainWindow(QMainWindow):
         dialog = QDialog(self)
         dialog.setWindowTitle("Ações da OP")
         label = QLabel(f"OP {op.numero_op or 'sem número'}\n{op.cliente or 'Cliente não informado'}", dialog)
+        reminder_btn = QPushButton("⏰ Agendar Lembrete na TV", dialog)
+        reminder_btn.setStyleSheet("font-weight: bold; color: #38bdf8; text-align: left; padding: 6px 10px;")
         complete = QPushButton("Concluir OP", dialog)
         edit = QPushButton("Editar OP", dialog)
         cancel = QPushButton("Cancelar", dialog)
         layout = QVBoxLayout(dialog)
         layout.addWidget(label)
+        layout.addWidget(reminder_btn)
         layout.addWidget(complete)
         layout.addWidget(edit)
         layout.addWidget(cancel)
+        reminder_btn.clicked.connect(lambda: (dialog.accept(), self._open_reminder_scheduler(op)))
         complete.clicked.connect(lambda: (dialog.accept(), self._complete_op(op)))
         edit.clicked.connect(lambda: (dialog.accept(), self._open_edit(op)))
         cancel.clicked.connect(dialog.reject)
         dialog.exec()
+
+    def _open_reminder_scheduler(self, op: OpListDTO | None = None) -> None:
+        target_op = op
+        if target_op is None:
+            selected_rows = self.list_view.table.selectionModel().selectedRows()
+            if selected_rows:
+                source_index = self.list_view.proxy.mapToSource(selected_rows[0])
+                target_op = self.list_view.model.op_at(source_index.row())
+
+        dialog = OpReminderDialog(
+            self,
+            repository=self.container.repository,
+            station_id=self.container.station_id,
+            op=target_op,
+        )
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.refresh_automatically()
+            QMessageBox.information(
+                self,
+                "Lembrete agendado",
+                "O lembrete foi programado com sucesso para exibição na TV!",
+            )
 
     def _complete_op(self, op: OpListDTO) -> None:
         self._run_write(lambda: self.container.production_service.complete(op.id, op.row_version))
@@ -277,6 +390,10 @@ class MainWindow(QMainWindow):
         dialog.reopen_requested.connect(self._reopen_op)
         dialog.restore_requested.connect(lambda op: self._run_write(lambda: self.container.production_service.restore(op.id, op.row_version)))
         dialog.changes_requested.connect(self._show_changes)
+        dialog.exec()
+
+    def _open_reports(self) -> None:
+        dialog = MonthlyReportDialog(self, repository=self.container.repository)
         dialog.exec()
 
     def _reopen_op(self, op: OpListDTO) -> None:
@@ -433,6 +550,7 @@ class MainWindow(QMainWindow):
         else:
             self._tv_window.apply_settings(self._tv_settings)
         self._tv_window.set_ops(list(self.list_view.model._ops))
+        self._tv_window.set_reminders(self.container.repository.list_reminders(active_only=True))
         self._tv_window.set_offline(self._offline)
         self._apply_shared_colors()
         if screen is not None:

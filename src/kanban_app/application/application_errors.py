@@ -7,7 +7,3 @@ class OptimisticConflictError(RuntimeError):
 
 class ReadOnlyModeError(RuntimeError):
     """Raised when a write is attempted while the app is in degraded readonly mode."""
-
-
-class MutationReplayError(RuntimeError):
-    """Raised when the same mutation_id is replayed with a different semantic payload."""

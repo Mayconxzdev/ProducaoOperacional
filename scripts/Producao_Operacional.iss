@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "2.4.0"
+  #define MyAppVersion "2.4.2"
 #endif
 #ifndef MySourceDir
   #define MySourceDir "..\dist\Producao_Operacional"
@@ -51,10 +51,12 @@ Name: "opimportintegrator"; Description: "Ativar integração automática de nov
 [Files]
 Source: "{#MySourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 Source: "..\config\settings.json"; DestDir: "{app}\config"; DestName: "settings.json"; Flags: onlyifdoesntexist
+Source: "..\config\settings.json"; DestDir: "{app}\config"; DestName: "settings.install-template.json"; Flags: deleteafterinstall ignoreversion
 Source: "..\config\settings.example.json"; DestDir: "{app}\config"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\CHANGELOG.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\scripts\install_op_discovery_task.ps1"; DestDir: "{app}\automation"; Flags: ignoreversion
+Source: "..\scripts\merge_op_discovery_config.ps1"; DestDir: "{app}\automation"; Flags: ignoreversion
 Source: "..\scripts\remove_op_discovery_task.ps1"; DestDir: "{app}\automation"; Flags: ignoreversion
 
 [Icons]
@@ -94,6 +96,19 @@ begin
     MsgBox('Falha ao configurar a integração automática de OPs.' + #13#10 + 'Código: ' + IntToStr(ResultCode), mbCriticalError, MB_OK);
 end;
 
+function MergeOpImportConfig(): Boolean;
+var
+  ResultCode: Integer;
+  Arguments: string;
+begin
+  Arguments := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\automation\merge_op_discovery_config.ps1') +
+    '" -TargetConfig "' + ExpandConstant('{app}\config\settings.json') +
+    '" -TemplateConfig "' + ExpandConstant('{app}\config\settings.install-template.json') + '"';
+  Result := Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'), Arguments, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0);
+  if not Result then
+    MsgBox('Falha ao preparar a configuração da integração automática de OPs.' + #13#10 + 'Código: ' + IntToStr(ResultCode), mbCriticalError, MB_OK);
+end;
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;
@@ -114,6 +129,8 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    if not MergeOpImportConfig() then
+      RaiseException('Falha ao preparar a configuração da integração automática de OPs.');
     if WizardIsTaskSelected('roleoffice') then
     begin
       DeleteFile(ExpandConstant('{userstartup}\Produção Operacional TV.lnk'));

@@ -8,7 +8,7 @@ from PySide6.QtGui import QBrush, QColor, QFont
 
 from kanban_app.application.dto import OpListDTO
 from kanban_app.application.production_service import ProductionService
-from kanban_app.domain.enums import OpStatus
+from kanban_app.domain.enums import OP_STATUS_LABELS, OpStatus
 from kanban_app.presentation.tv_focus_formatting import (
     tv_focus_date_label,
     tv_focus_op_label,
@@ -17,13 +17,7 @@ from kanban_app.presentation.tv_focus_formatting import (
 )
 
 
-STATUS_LABELS = {
-    "PRIORIDADE": "Prioridade",
-    "EM_ATRASO": "Em atraso",
-    "EM_DIA": "Em dia",
-    "AGUARDANDO": "Aguardando",
-    "CONCLUIDO": "Concluído",
-}
+STATUS_LABELS = {status.value: label for status, label in OP_STATUS_LABELS.items()}
 
 _ALIGNMENT_FLAGS = {
     "left": Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,

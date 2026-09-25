@@ -3,7 +3,6 @@ from __future__ import annotations
 import sqlite3
 import time
 from functools import wraps
-import unicodedata
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -19,7 +18,7 @@ from kanban_app.application.application_errors import ReadOnlyModeError
 from kanban_app.domain.option_lists import DEFAULT_SECTOR_COLORS, DEFAULT_SECTOR_NAMES, stable_sector_id
 from kanban_app.infrastructure.db.base import Base
 from kanban_app.infrastructure.db.models import utc_now
-from kanban_app.formatting import normalize_voltage_value
+from kanban_app.formatting import contrast_text_color, normalize_voltage_value, sector_key
 
 
 def _retry_schema_if_locked(fn):
@@ -257,7 +256,7 @@ class Database:
             return {stable_sector_id(name) for name in DEFAULT_SECTOR_NAMES}
         rows = connection.execute(text("SELECT * FROM legacy_ops ORDER BY id")).mappings().all()
         sector_lookup = {
-            self._sector_key(row["nome"]): row["id"]
+            sector_key(row["nome"]): row["id"]
             for row in connection.execute(text("SELECT id, nome FROM sectors")).mappings()
         }
         used_sector_ids = set(sector_lookup.values())
@@ -265,7 +264,7 @@ class Database:
             raw_sector = str(row.get("setor") or "").strip()
             sector_id = None
             if raw_sector:
-                key = self._sector_key(raw_sector)
+                key = sector_key(raw_sector)
                 sector_id = sector_lookup.get(key)
                 if sector_id is None:
                     sector_id = stable_sector_id(raw_sector)
@@ -336,11 +335,6 @@ class Database:
             return None
         return parsed if parsed > 0 else None
 
-    @staticmethod
-    def _sector_key(value: str) -> str:
-        normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
-        return "".join(char for char in normalized if char.isalnum() and not unicodedata.combining(char))
-
     def _repair_sector_catalog(self, connection: Connection) -> None:
         """Corrige duplicidades/aliases legados sem impedir futuras personalizações."""
         tables = set(inspect(connection).get_table_names())
@@ -351,7 +345,7 @@ class Database:
         if not rows:
             return
 
-        canonical_ids = {self._sector_key(name): stable_sector_id(name) for name in DEFAULT_SECTOR_NAMES}
+        canonical_ids = {sector_key(name): stable_sector_id(name) for name in DEFAULT_SECTOR_NAMES}
         aliases = {
             "projetos": "projeto",
             "desenho": "projeto",
@@ -378,7 +372,7 @@ class Database:
         # Primeiro mescla nomes equivalentes (incluindo diferenças de acento/caixa).
         groups: dict[str, list[str]] = {}
         for sector_id, row in list(by_id.items()):
-            groups.setdefault(self._sector_key(row["nome"]), []).append(sector_id)
+            groups.setdefault(sector_key(row["nome"]), []).append(sector_id)
         for key, ids in groups.items():
             if len(ids) < 2:
                 continue
@@ -401,7 +395,7 @@ class Database:
         # Depois disso o usuário continua livre para criar nomes personalizados.
         if repair_version < self.SCHEMA_VERSION:
             for source_id, row in list(by_id.items()):
-                key = self._sector_key(row["nome"])
+                key = sector_key(row["nome"])
                 target_key = aliases.get(key)
                 if not target_key:
                     continue
@@ -477,7 +471,7 @@ class Database:
             for row in rows:
                 current = str(row.get("cor_texto") or "").strip()
                 if added_text_color or not cls._valid_hex_color(current):
-                    suggested = cls._contrast_text_color(str(row.get("cor") or "#475569"))
+                    suggested = contrast_text_color(str(row.get("cor") or "#475569"))
                     connection.execute(
                         text("UPDATE sectors SET cor_texto = :color WHERE id = :id"),
                         {"color": suggested, "id": row["id"]},
@@ -493,16 +487,6 @@ class Database:
         except ValueError:
             return False
         return True
-
-    @staticmethod
-    def _contrast_text_color(background: str) -> str:
-        value = str(background or "#475569").lstrip("#")
-        try:
-            red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
-        except (ValueError, IndexError):
-            return "#ffffff"
-        luminance = (red * 299 + green * 587 + blue * 114) / 1000
-        return "#111827" if luminance > 150 else "#ffffff"
 
     @staticmethod
     def _normalize_voltage_values(connection: Connection) -> None:
@@ -571,6 +555,12 @@ class Database:
                 "op_id", "error", "created_at", "updated_at",
             },
             "app_run_locks": {"lock_key", "owner_id", "lease_until", "updated_at"},
+            "op_reminders": {
+                "id", "op_id", "numero_op", "cliente", "modelo", "mensagem",
+                "data_inicio", "data_fim", "horario", "duracao_segundos",
+                "tipo_recorrencia", "dias_semana", "ativo", "created_by_station",
+                "created_at", "updated_at",
+            },
         }
         inspector = inspect(connection)
         existing_tables = set(inspector.get_table_names())

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 
@@ -28,6 +28,70 @@ class OpDiscoveryConfig:
     schedule_times: tuple[str, ...] = ("08:00", "14:00", "17:00")
     initial_sector_name: str = "Projeto"
     worker_lease_minutes: int = 20
+
+
+OP_DISCOVERY_SHARED_RULE_KEY = "op_discovery.shared_rule"
+
+
+def op_discovery_rule_payload(discovery: OpDiscoveryConfig) -> dict[str, object]:
+    """Dados que devem ser iguais em todas as estações.
+
+    ``enabled`` fica intencionalmente de fora: ele indica se *este* computador
+    é a estação integradora e, portanto, não pode desligar os demais PCs.
+    """
+
+    return {
+        "source_root_candidates": [str(item) for item in discovery.source_root_candidates],
+        "production_relative_path": str(discovery.production_relative_path),
+        "groups": list(discovery.groups),
+        "document_extensions": list(discovery.document_extensions),
+        "schedule": {"days": list(discovery.schedule_days), "times": list(discovery.schedule_times)},
+        "initial_sector_name": discovery.initial_sector_name,
+        "worker_lease_minutes": int(discovery.worker_lease_minutes),
+    }
+
+
+def apply_shared_op_discovery_rule(station: OpDiscoveryConfig, raw_rule: object) -> OpDiscoveryConfig:
+    """Aplica a regra compartilhada sem alterar o papel local da estação."""
+
+    if not isinstance(raw_rule, dict):
+        return station
+    roots_raw = raw_rule.get("source_root_candidates")
+    roots = tuple(Path(str(item)) for item in roots_raw if str(item or "").strip()) if isinstance(roots_raw, list) else station.source_root_candidates
+    groups_raw = raw_rule.get("groups")
+    groups = tuple(str(item).strip() for item in groups_raw if str(item or "").strip()) if isinstance(groups_raw, list) else station.groups
+    extensions_raw = raw_rule.get("document_extensions")
+    extensions = tuple(
+        suffix for suffix in (str(item or "").strip().casefold() for item in extensions_raw)
+        if suffix in {".odt", ".docx", ".pdf"}
+    ) if isinstance(extensions_raw, list) else station.document_extensions
+    schedule_raw = raw_rule.get("schedule") if isinstance(raw_rule.get("schedule"), dict) else {}
+    days_raw = schedule_raw.get("days") if isinstance(schedule_raw.get("days"), list) else station.schedule_days
+    times_raw = schedule_raw.get("times") if isinstance(schedule_raw.get("times"), list) else station.schedule_times
+    days = tuple(dict.fromkeys(
+        value for value in (str(item or "").strip().casefold() for item in days_raw)
+        if value in {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+    ))
+    times = tuple(dict.fromkeys(
+        value for value in (str(item or "").strip() for item in times_raw)
+        if re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", value)
+    ))
+    relative_raw = str(raw_rule.get("production_relative_path") or "").strip()
+    try:
+        lease_minutes = max(5, min(120, int(raw_rule.get("worker_lease_minutes") or station.worker_lease_minutes)))
+    except (TypeError, ValueError):
+        lease_minutes = station.worker_lease_minutes
+    return replace(
+        station,
+        source_root_candidates=roots or station.source_root_candidates,
+        production_relative_path=Path(relative_raw) if relative_raw else station.production_relative_path,
+        groups=groups or station.groups,
+        document_extensions=extensions or station.document_extensions,
+        schedule_days=days or station.schedule_days,
+        schedule_times=times or station.schedule_times,
+        initial_sector_name=str(raw_rule.get("initial_sector_name") or station.initial_sector_name).strip() or station.initial_sector_name,
+        worker_lease_minutes=lease_minutes,
+    )
 
 
 @dataclass(frozen=True, slots=True)

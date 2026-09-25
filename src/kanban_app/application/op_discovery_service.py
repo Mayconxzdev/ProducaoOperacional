@@ -9,7 +9,7 @@ from uuid import uuid4
 
 from kanban_app.application.document_import_service import DocumentImportService
 from kanban_app.domain.enums import OpStatus
-from kanban_app.infrastructure.config import OpDiscoveryConfig
+from kanban_app.infrastructure.config import OP_DISCOVERY_SHARED_RULE_KEY, OpDiscoveryConfig, apply_shared_op_discovery_rule
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 
 
@@ -85,8 +85,13 @@ class OpDiscoveryService:
         self.station_id = station_id
 
     def run(self) -> DiscoveryResult:
-        if not self.config.enabled:
+        config = apply_shared_op_discovery_rule(
+            self.config,
+            self.repository.get_setting(OP_DISCOVERY_SHARED_RULE_KEY, None),
+        )
+        if not config.enabled:
             return DiscoveryResult(status="DISABLED", message="Integração automática desativada na configuração local.")
+        self.config = config
         production_root = self._resolve_production_root()
         if production_root is None:
             return DiscoveryResult(status="NAS_UNAVAILABLE", message="Nenhum caminho configurado do NAS possui a estrutura de produção esperada.")

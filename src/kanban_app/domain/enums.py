@@ -46,20 +46,16 @@ def coerce_op_status(value: OpStatus | str | object, default: OpStatus = OpStatu
         return default
 
 
-def coerce_check_state(value: CheckState | str | object, default: CheckState = CheckState.NAO_INFORMADO) -> CheckState:
-    if isinstance(value, CheckState):
-        return value
-    raw = str(value or "").strip()
-    if raw.startswith("CheckState."):
-        raw = raw.split(".", 1)[1]
-    normalized = raw.upper().replace("-", "_").replace(" ", "_")
-    aliases = {
-        "": default,
-        "NAO_INFORMADO": CheckState.NAO_INFORMADO,
-        "NÃO_INFORMADO": CheckState.NAO_INFORMADO,
-        "NÃO INFORMADO": CheckState.NAO_INFORMADO,
-        "SIM": CheckState.SIM,
-        "NAO": CheckState.NAO,
-        "NÃO": CheckState.NAO,
-    }
-    return aliases.get(normalized, default)
+OP_STATUS_LABELS: dict[OpStatus, str] = {
+    OpStatus.PRIORIDADE: "Prioridade",
+    OpStatus.EM_ATRASO: "Em atraso",
+    OpStatus.EM_DIA: "Em dia",
+    OpStatus.AGUARDANDO: "Aguardando",
+    OpStatus.CONCLUIDO: "Concluído",
+}
+
+
+def op_status_label(value: OpStatus | str | object) -> str:
+    """Retorna o rótulo legível em português correspondente ao status da OP."""
+    status = coerce_op_status(value)
+    return OP_STATUS_LABELS.get(status, str(value or "").replace("_", " ").title())

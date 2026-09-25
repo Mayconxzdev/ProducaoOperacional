@@ -4,6 +4,8 @@ from collections.abc import Mapping, Sequence
 from math import floor
 import re
 
+from kanban_app.domain.enums import OP_STATUS_LABELS
+
 
 TV_COLUMNS = (
     ("op", "OP", "OP"),
@@ -45,7 +47,7 @@ TV_DEFAULT_FONT_SCALES = {
     "op": 48,
     "status": 42,
     "cliente": 35,
-    "modelo": 48,
+    "modelo": 40,
     "voltagem": 35,
     "quantidade": 70,
     "inicio": 35,
@@ -70,13 +72,7 @@ TV_DEFAULT_FORMATS = {key: "text" for key in TV_COLUMN_KEYS}
 TV_DEFAULT_FORMATS.update({"inicio": "dd/MM/yy", "entrega": "dd/MM/yy"})
 TV_DEFAULT_HEADERS = dict(TV_COLUMN_LABELS)
 TV_DEFAULT_HEADERS.update({"voltagem": "V", "quantidade": "Qtd."})
-TV_DEFAULT_STATUS_LABELS = {
-    "PRIORIDADE": "Prioridade",
-    "EM_ATRASO": "Em atraso",
-    "EM_DIA": "Em dia",
-    "AGUARDANDO": "Aguardando",
-    "CONCLUIDO": "Concluído",
-}
+TV_DEFAULT_STATUS_LABELS = {status.value: label for status, label in OP_STATUS_LABELS.items()}
 
 _ALIGNMENT_VALUES = {"left", "center", "right"}
 _DATE_FORMAT_VALUES = {"dd/MM/yyyy", "dd/MM/yy", "dd/MM"}
@@ -108,6 +104,16 @@ def default_tv_settings() -> dict[str, object]:
         "header_foreground": "#ffffff",
         "screen_background": "#0f172a",
         "grid_color": "#10233d",
+        "reminder_enabled": True,
+        "reminder_card_background": "#0f172a",
+        "reminder_card_foreground": "#f8fafc",
+        "reminder_card_border": "#38bdf8",
+        "reminder_font_scale_percent": 100,
+        "reminder_width_percent": 65,
+        "reminder_pause_pagination": True,
+        "reminder_default_duration_seconds": 30,
+        "reminder_sound_enabled": True,
+        "reminder_sound_type": "defesa_civil",
     }
 
 
@@ -139,7 +145,16 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
     order.extend(key for key in allowed_order if key not in order)
 
     widths = _normalize_int_map(values.get("column_widths"), TV_DEFAULT_WIDTHS, low=20, high=5000)
-    font_scales = _normalize_int_map(values.get("column_font_scales"), TV_DEFAULT_FONT_SCALES, low=35, high=250)
+    raw_font_scales = values.get("column_font_scales")
+    font_scales = _normalize_int_map(raw_font_scales, TV_DEFAULT_FONT_SCALES, low=35, high=250)
+    if isinstance(raw_font_scales, Mapping):
+        # The previous default clipped the longest model names on Full HD TVs.
+        # Migrate an untouched old font preset and preserve custom font scales.
+        legacy_default_scales = dict(TV_DEFAULT_FONT_SCALES)
+        legacy_default_scales["modelo"] = 48
+        legacy_scales = _normalize_int_map(raw_font_scales, legacy_default_scales, low=35, high=250)
+        if legacy_scales == legacy_default_scales:
+            font_scales = dict(TV_DEFAULT_FONT_SCALES)
 
     headers = _normalize_text_map(values.get("column_headers"), TV_DEFAULT_HEADERS, allowed_keys=allowed, max_length=40)
     alignments = _normalize_choice_map(
@@ -213,6 +228,16 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
         "header_foreground": color("header_foreground"),
         "screen_background": color("screen_background"),
         "grid_color": color("grid_color"),
+        "reminder_enabled": boolean("reminder_enabled"),
+        "reminder_card_background": color("reminder_card_background"),
+        "reminder_card_foreground": color("reminder_card_foreground"),
+        "reminder_card_border": color("reminder_card_border"),
+        "reminder_font_scale_percent": number("reminder_font_scale_percent", 60, 200),
+        "reminder_width_percent": number("reminder_width_percent", 30, 95),
+        "reminder_pause_pagination": boolean("reminder_pause_pagination"),
+        "reminder_default_duration_seconds": number("reminder_default_duration_seconds", 5, 300),
+        "reminder_sound_enabled": boolean("reminder_sound_enabled"),
+        "reminder_sound_type": str(values.get("reminder_sound_type", defaults["reminder_sound_type"])),
     }
 
 

@@ -12,7 +12,7 @@ import pytest
 from docx import Document
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
-from PySide6.QtWidgets import QLabel, QScrollArea, QToolBar
+from PySide6.QtWidgets import QLabel, QLineEdit, QScrollArea, QToolBar
 
 from kanban_app.application.deadline_alert_service import DeadlineAlertService
 from kanban_app.application.document_import_service import DocumentImportService
@@ -20,7 +20,13 @@ from kanban_app.application.op_discovery_service import OpDiscoveryService
 from kanban_app.application.dto import CheckEntryDTO, OpFormDTO, StationRoleDTO
 from kanban_app.bootstrap import AppContainer
 from kanban_app.domain.enums import CheckState, OpStatus
-from kanban_app.infrastructure.config import OpDiscoveryConfig, SmtpConfig, load_config
+from kanban_app.infrastructure.config import (
+    OP_DISCOVERY_SHARED_RULE_KEY,
+    OpDiscoveryConfig,
+    SmtpConfig,
+    load_config,
+    op_discovery_rule_payload,
+)
 from kanban_app.infrastructure.db.repositories import ProductionRepository
 from kanban_app.infrastructure.db.session import Database
 from kanban_app.infrastructure.services.station_runtime import StationRuntimeStore
@@ -232,15 +238,31 @@ def test_duplicate_number_is_blocked_for_all_new_creations(tmp_path: Path):
         container.production_service.create(valid_form(container, cliente="Outro cliente"))
 
 
-def test_check_acompanhamento_has_fourteen_independent_states_and_history(tmp_path: Path):
+def test_check_acompanhamento_accepts_free_text_preserves_legacy_values_and_tracks_history(tmp_path: Path):
     container = make_container(tmp_path)
-    created = container.production_service.create(valid_form(container, acompanhamento=(CheckEntryDTO("Projetos:IT", CheckState.SIM), CheckEntryDTO("Expedição:Destino", CheckState.NAO))))
+    created = container.production_service.create(valid_form(container, acompanhamento=(CheckEntryDTO("Projetos:IT", "Aguardando retorno do fornecedor"), CheckEntryDTO("Expedição:Destino", CheckState.NAO))))
     assert len(created.acompanhamento) == 14
     by_key = {entry.field_key: entry for entry in created.acompanhamento}
-    assert by_key["Projetos:IT"].state is CheckState.SIM
-    assert by_key["Expedição:Destino"].state is CheckState.NAO
-    assert all(entry.state in set(CheckState) for entry in created.acompanhamento)
+    assert by_key["Projetos:IT"].state == "Aguardando retorno do fornecedor"
+    assert by_key["Expedição:Destino"].state == "Não"
+    assert by_key["Compras:Chapa"].state == ""
     assert any(event.event_type == "ACOMPANHAMENTO" for event in container.repository.history_for_op(created.id))
+
+
+def test_check_acompanhamento_dialog_uses_free_text_inputs(qtbot, tmp_path: Path):
+    container = make_container(tmp_path)
+    dialog = OpFormDialog(
+        sectors=container.production_service.sectors(active_only=True),
+        voltages=["220 V"],
+    )
+    qtbot.addWidget(dialog)
+
+    field = dialog._check_inputs["Projetos:IT"]
+    assert isinstance(field, QLineEdit)
+    field.setText("Pedido enviado em 27/07; aguardando retorno")
+
+    values = {entry.field_key: entry.state for entry in dialog.form_value().acompanhamento}
+    assert values["Projetos:IT"] == "Pedido enviado em 27/07; aguardando retorno"
 
 
 def test_completion_reopen_archive_restore_and_history(tmp_path: Path):
@@ -363,6 +385,41 @@ def test_discovery_first_run_creates_a_baseline_without_reading_or_importing_exi
     assert len(imported) == 1
     assert imported[0].setor_nome == "Projeto"
     assert imported[0].status is OpStatus.EM_DIA
+
+
+def test_discovery_uses_shared_rule_instead_of_integrator_local_paths(tmp_path: Path):
+    container = make_container(tmp_path / "app")
+    shared_root = tmp_path / "shared-nas"
+    write_discovery_document(shared_root, "00_GRUPO_A", "01 - OP 7010 - Existente", number="7010")
+    (shared_root / "Clientes" / "00_PRODUZINDO" / "00_GRUPO_B").mkdir(parents=True)
+    shared = OpDiscoveryConfig(
+        source_root_candidates=(shared_root,),
+        production_relative_path=Path("Clientes/00_PRODUZINDO"),
+        groups=("00_GRUPO_A", "00_GRUPO_B"),
+        schedule_days=("saturday",),
+        schedule_times=("07:30",),
+    )
+    container.repository.set_setting(
+        OP_DISCOVERY_SHARED_RULE_KEY,
+        op_discovery_rule_payload(shared),
+        station_id="other-pc",
+    )
+    local_integrator = OpDiscoveryConfig(
+        enabled=True,
+        source_root_candidates=(tmp_path / "old-local-path",),
+        production_relative_path=Path("old"),
+        groups=("old",),
+    )
+
+    result = OpDiscoveryService(
+        container.repository,
+        container.document_import_service,
+        local_integrator,
+        station_id=container.station_id,
+    ).run()
+
+    assert result.status == "BASELINED"
+    assert Path(result.active_root) == shared_root / "Clientes" / "00_PRODUZINDO"
 
 
 def test_discovery_blocks_an_existing_op_number_and_keeps_its_source_record(tmp_path: Path):
@@ -648,6 +705,9 @@ def test_personalization_saves_op_discovery_monitoring_rules_locally(qtbot, tmp_
     assert saved.document_extensions == (".odt", ".docx")
     assert saved.schedule_days == ("tuesday", "wednesday", "thursday", "friday", "saturday")
     assert saved.schedule_times == ("07:30", "16:45")
+    shared = container.repository.get_setting(OP_DISCOVERY_SHARED_RULE_KEY)
+    assert shared["schedule"] == {"days": ["tuesday", "wednesday", "thursday", "friday", "saturday"], "times": ["07:30", "16:45"]}
+    assert shared["source_root_candidates"]
     dialog.tv_preview._timer.stop()
 
 
@@ -1026,3 +1086,349 @@ def test_newer_database_schema_is_not_downgraded(tmp_path: Path):
         database.create_schema()
     assert database.is_read_only()
     assert not database.read_only_is_recoverable()
+
+
+def test_version_and_centralized_formatting_utilities():
+    import kanban_app
+    from kanban_app.domain.enums import OP_STATUS_LABELS, op_status_label
+    from kanban_app.formatting import contrast_text_color, sector_key
+
+    assert kanban_app.__version__ == "2.4.2"
+    assert op_status_label(OpStatus.EM_DIA) == "Em dia"
+    assert op_status_label("PRIORIDADE") == "Prioridade"
+    assert op_status_label("aguardando") == "Aguardando"
+    assert op_status_label("EM_ATRASO") == "Em atraso"
+    assert op_status_label(OpStatus.CONCLUIDO) == "Concluído"
+    assert op_status_label("valor_desconhecido") == "Em dia"
+
+    assert contrast_text_color("#000000") == "#ffffff"
+    assert contrast_text_color("#ffffff") == "#111827"
+    assert contrast_text_color("") == "#ffffff"
+
+    assert sector_key("Serralheria") == "serralheria"
+    assert sector_key("  EXPEDIÇÃO / CONCLUÍDO  ") == "expedicaoconcluido"
+
+
+def test_op_reminders_crud_and_conflict_detection(tmp_path: Path):
+    from kanban_app.application.dto import OpReminderFormDTO
+
+    container = make_container(tmp_path)
+    repo = container.repository
+
+    # 1. Criação de lembrete
+    form1 = OpReminderFormDTO(
+        mensagem="Conferir rolamentos especiais",
+        horario="14:00",
+        numero_op="5320",
+        cliente="ELETRICA COMANDO",
+        modelo="PE 300e",
+        duracao_segundos=30,
+        tipo_recorrencia="DAILY",
+    )
+    reminder1 = repo.create_reminder(form1, station_id="station-1")
+    assert reminder1.id
+    assert reminder1.mensagem == "Conferir rolamentos especiais"
+    assert reminder1.horario == "14:00"
+    assert reminder1.ativo is True
+
+    # 2. Listagem
+    all_reminders = repo.list_reminders()
+    assert len(all_reminders) == 1
+    assert all_reminders[0].id == reminder1.id
+
+    # 3. Detecção de Conflito de Horário
+    conflict = repo.find_conflicting_reminder("14:00", duracao_segundos=30)
+    assert conflict is not None
+    assert conflict.id == reminder1.id
+
+    no_conflict = repo.find_conflicting_reminder("15:00", duracao_segundos=30)
+    assert no_conflict is None
+
+    # 4. Sugestão automática do próximo horário livre
+    suggested = repo.suggest_next_available_time("14:00", duracao_segundos=30)
+    assert suggested == "14:01"
+
+    # 5. Toggle e Atualização
+    toggled = repo.toggle_reminder(reminder1.id)
+    assert toggled is not None and toggled.ativo is False
+    assert len(repo.list_reminders(active_only=True)) == 0
+
+    updated = repo.update_reminder(
+        reminder1.id,
+        OpReminderFormDTO(mensagem="Texto atualizado", horario="14:05", duracao_segundos=45, ativo=True),
+        station_id="station-2",
+    )
+    assert updated.mensagem == "Texto atualizado"
+    assert updated.horario == "14:05"
+    assert updated.duracao_segundos == 45
+    assert updated.ativo is True
+
+    # 6. Exclusão
+    assert repo.delete_reminder(reminder1.id) is True
+    assert len(repo.list_reminders()) == 0
+
+
+def test_tv_reminder_overlay_rendering(qtbot, tmp_path: Path):
+    from kanban_app.presentation.widgets.tv_focus_window import TvFocusWindow
+
+    tv = TvFocusWindow()
+    qtbot.addWidget(tv)
+    tv.resize(1280, 720)
+    tv.show()
+
+    # O overlay existe e inicia oculto
+    assert hasattr(tv, "reminder_overlay")
+    assert not tv.reminder_overlay.isVisible()
+
+    # 1. Dispara lembrete único de teste
+    tv.trigger_test_reminder(duration_seconds=5, count=1)
+    assert tv.reminder_overlay.isVisible()
+    assert "5320" in tv.reminder_overlay.header_title.text()
+    assert tv.reminder_overlay.card.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 1
+
+    # Simula tick regressivo
+    tv._check_reminders_tick()
+    assert tv._remaining_reminder_seconds == 4
+
+    # 2. Dispara 2 lembretes simultâneos (lado a lado)
+    tv.trigger_test_reminder(duration_seconds=5, count=2)
+    assert tv.reminder_overlay.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 2
+    assert tv.reminder_overlay.grid_layout.columnCount() == 2
+
+    # 3. Dispara 6 lembretes simultâneos (grade 3x2)
+    tv.trigger_test_reminder(duration_seconds=5, count=6)
+    assert tv.reminder_overlay.isVisible()
+    assert len(tv.reminder_overlay._active_cards) == 6
+    assert tv.reminder_overlay.grid_layout.columnCount() == 3
+    assert tv.reminder_overlay.grid_layout.rowCount() == 2
+
+    tv._timer.stop()
+    tv._reminder_checker.stop()
+
+
+def test_sound_alert_generation_and_playback():
+    from kanban_app.presentation.sound_alert import (
+        SOUND_TYPE_LABELS,
+        _resolve_sound_file,
+        play_alert_sound,
+    )
+
+    assert "defesa_civil" in SOUND_TYPE_LABELS
+    assert "sino_suave" in SOUND_TYPE_LABELS
+    assert "sineta_discreta" in SOUND_TYPE_LABELS
+    assert "windows" in SOUND_TYPE_LABELS
+
+    # Verifica resolução de arquivo físico no disco
+    sound_file = _resolve_sound_file("defesa_civil")
+    assert sound_file is not None
+    assert sound_file.is_file()
+    assert sound_file.stat().st_size > 10000
+
+    # Chamada sem exceção em ambiente de teste para todas as opções
+    play_alert_sound("defesa_civil")
+    play_alert_sound("sino_suave")
+    play_alert_sound("sineta_discreta")
+    play_alert_sound("windows")
+    # Compatibilidade com chaves legadas
+    play_alert_sound("chime")
+    play_alert_sound("bell")
+
+
+def test_tv_settings_include_sound_alert_configuration():
+    from kanban_app.presentation.tv_settings import default_tv_settings, normalize_tv_settings
+
+    defaults = default_tv_settings()
+    assert defaults["reminder_sound_enabled"] is True
+    assert defaults["reminder_sound_type"] == "defesa_civil"
+
+    custom = normalize_tv_settings({"reminder_sound_enabled": False, "reminder_sound_type": "sino_suave"})
+    assert custom["reminder_sound_enabled"] is False
+    assert custom["reminder_sound_type"] == "sino_suave"
+
+
+def test_monthly_report_calculations_past_and_current_month(tmp_path: Path):
+    from datetime import date, datetime
+    from kanban_app.application.dto import OpFormDTO
+    from kanban_app.application.report_service import MonthlyReportService
+    from kanban_app.domain.enums import OpStatus
+    from kanban_app.infrastructure.db.models import OpModel
+
+    container = make_container(tmp_path)
+    repo = container.repository
+    service = MonthlyReportService(repo)
+
+    active_sectors = repo.list_sectors(active_only=True)
+    sector_id = active_sectors[0].id if active_sectors else None
+
+    # Mês Passado: Junho / 2026
+    # 1. OP criada e concluída no prazo em Junho/2026
+    op1_form = OpFormDTO(
+        numero_op="6001",
+        cliente="CLIENTE A",
+        modelo="MOD-1",
+        quantidade=10,
+        voltagem="220",
+        data_inicio=date(2026, 6, 1),
+        data_entrega=date(2026, 6, 15),
+        setor_id=sector_id,
+        status=OpStatus.CONCLUIDO,
+    )
+    op1 = repo.create_op(op1_form, station_id="st-1")
+    # Ajusta completed_at para 10/06/2026 (no prazo)
+    with repo.database.write_session() as session:
+        db_op1 = session.get(OpModel, op1.id)
+        db_op1.created_at = datetime(2026, 6, 1, 10, 0, 0)
+        db_op1.completed_at = datetime(2026, 6, 10, 15, 0, 0)
+
+    # 2. OP criada e concluída com atraso em Junho/2026
+    op2_form = OpFormDTO(
+        numero_op="6002",
+        cliente="CLIENTE B",
+        modelo="MOD-2",
+        quantidade=5,
+        voltagem="380",
+        data_inicio=date(2026, 6, 5),
+        data_entrega=date(2026, 6, 20),
+        setor_id=sector_id,
+        status=OpStatus.CONCLUIDO,
+    )
+    op2 = repo.create_op(op2_form, station_id="st-1")
+    # Ajusta completed_at para 25/06/2026 (com atraso)
+    with repo.database.write_session() as session:
+        db_op2 = session.get(OpModel, op2.id)
+        db_op2.created_at = datetime(2026, 6, 5, 10, 0, 0)
+        db_op2.completed_at = datetime(2026, 6, 25, 17, 0, 0)
+
+    # Gera relatório de Junho / 2026 (mês fechado)
+    ref_date = date(2026, 9, 25)
+    summary_jun = service.build_summary(2026, 6, reference_date=ref_date)
+
+    assert summary_jun.is_mes_fechado is True
+    assert summary_jun.total_concluidas == 2
+    assert summary_jun.concluidas_no_prazo == 1
+    assert summary_jun.concluidas_com_atraso == 1
+    assert summary_jun.taxa_pontualidade == 50.0
+    assert summary_jun.total_concluidas_pecas == 15
+    assert summary_jun.lead_time_medio_dias == 14.5  # ((10-1) + (25-5)) / 2 = (9 + 20) / 2 = 14.5
+    assert summary_jun.em_producao_agora == 0
+
+    # Mês Atual: Setembro / 2026 (em andamento)
+    # 3. OP ativa no prazo em Setembro/2026
+    op3_form = OpFormDTO(
+        numero_op="6003",
+        cliente="CLIENTE C",
+        modelo="MOD-3",
+        quantidade=8,
+        voltagem="440",
+        data_inicio=date(2026, 9, 10),
+        data_entrega=date(2026, 9, 28),
+        setor_id=sector_id,
+        status=OpStatus.EM_DIA,
+    )
+    op3 = repo.create_op(op3_form, station_id="st-1")
+    with repo.database.write_session() as session:
+        db_op3 = session.get(OpModel, op3.id)
+        db_op3.created_at = datetime(2026, 9, 10, 8, 0, 0)
+
+    # 4. OP ativa em atraso em Setembro/2026
+    op4_form = OpFormDTO(
+        numero_op="6004",
+        cliente="CLIENTE D",
+        modelo="MOD-4",
+        quantidade=12,
+        voltagem="220",
+        data_inicio=date(2026, 9, 5),
+        data_entrega=date(2026, 9, 20),  # Venceu antes de 25/09
+        setor_id=sector_id,
+        status=OpStatus.EM_ATRASO,
+    )
+    op4 = repo.create_op(op4_form, station_id="st-1")
+    with repo.database.write_session() as session:
+        db_op4 = session.get(OpModel, op4.id)
+        db_op4.created_at = datetime(2026, 9, 5, 8, 0, 0)
+
+    summary_set = service.build_summary(2026, 9, reference_date=ref_date)
+    assert summary_set.is_mes_fechado is False
+    assert summary_set.em_producao_agora >= 2
+    assert summary_set.em_atraso_agora >= 1
+    assert summary_set.previsao_restante_mes >= 1
+
+
+def test_monthly_report_export_pdf_and_csv(qapp, tmp_path: Path):
+    from datetime import date
+    from kanban_app.application.dto import OpFormDTO
+    from kanban_app.application.report_service import MonthlyReportService
+    from kanban_app.domain.enums import OpStatus
+
+    container = make_container(tmp_path)
+    repo = container.repository
+    service = MonthlyReportService(repo)
+
+    # Cria uma OP
+    repo.create_op(
+        OpFormDTO(
+            numero_op="6005",
+            cliente="CLIENTE TESTE",
+            modelo="MOD-EXP",
+            quantidade=20,
+            voltagem="220",
+            data_inicio=date(2026, 8, 1),
+            data_entrega=date(2026, 8, 20),
+            status=OpStatus.EM_DIA,
+        ),
+        station_id="st-1",
+    )
+
+    summary = service.build_summary(2026, 8, reference_date=date(2026, 9, 25))
+
+    # 1. Exporta CSV
+    csv_file = tmp_path / "relatorio_teste.csv"
+    saved_csv = service.export_to_csv(summary, csv_file)
+    assert saved_csv.is_file()
+    content = saved_csv.read_text(encoding="utf-8-sig")
+    assert "RELATÓRIO MENSAL DE PRODUÇÃO" in content
+    assert "6005" in content
+    assert "CLIENTE TESTE" in content
+
+
+    # 2. Exporta Excel (.xlsx)
+    xlsx_file = tmp_path / "relatorio_teste.xlsx"
+    saved_xlsx = service.export_to_excel(summary, xlsx_file)
+    assert saved_xlsx.is_file()
+    assert saved_xlsx.stat().st_size > 1000
+
+    # 3. Exporta PDF
+    pdf_file = tmp_path / "relatorio_teste.pdf"
+    saved_pdf = service.export_to_pdf(summary, pdf_file)
+    assert saved_pdf.is_file()
+    assert saved_pdf.stat().st_size > 1000
+
+
+def test_monthly_report_dialog_ui(qtbot, tmp_path: Path):
+    from PySide6.QtGui import QAction
+    from kanban_app.presentation.main_window import MainWindow
+    from kanban_app.presentation.widgets.report_dialog import MonthlyReportDialog
+
+    container = make_container(tmp_path)
+    dialog = MonthlyReportDialog(None, repository=container.repository, initial_year=2026, initial_month=9)
+    qtbot.addWidget(dialog)
+    dialog.show()
+
+    assert dialog.combo_month.currentData() == 9
+    assert dialog.spin_year.value() == 2026
+    assert dialog.donut_widget is not None
+    assert dialog.flow_bar_widget is not None
+    assert dialog.sector_bar_widget is not None
+    assert dialog.tab_widget.count() == 4
+
+    # Testa alternância de mês
+    dialog.btn_prev_month.click()
+    assert dialog.combo_month.currentData() == 8
+
+    # Testa toolbar da MainWindow contendo o botão de Relatórios
+    main_win = MainWindow(container)
+    qtbot.addWidget(main_win)
+    actions = [a.text() for a in main_win.findChildren(QAction)]
+    assert any("Relatórios" in a for a in actions)
