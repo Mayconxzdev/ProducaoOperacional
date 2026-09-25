@@ -1393,7 +1393,13 @@ def test_monthly_report_export_pdf_and_csv(qapp, tmp_path: Path):
     assert "CLIENTE TESTE" in content
 
 
-    # 2. Exporta PDF
+    # 2. Exporta Excel (.xlsx)
+    xlsx_file = tmp_path / "relatorio_teste.xlsx"
+    saved_xlsx = service.export_to_excel(summary, xlsx_file)
+    assert saved_xlsx.is_file()
+    assert saved_xlsx.stat().st_size > 1000
+
+    # 3. Exporta PDF
     pdf_file = tmp_path / "relatorio_teste.pdf"
     saved_pdf = service.export_to_pdf(summary, pdf_file)
     assert saved_pdf.is_file()

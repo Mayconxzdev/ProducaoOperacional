@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 from datetime import date
 from pathlib import Path
 
-from PySide6.QtCore import QDate, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QComboBox,
@@ -19,7 +17,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPushButton,
     QSpinBox,
-    QSplitter,
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -39,7 +36,7 @@ from kanban_app.presentation.widgets.chart_widgets import (
 
 
 class MonthlyReportDialog(QDialog):
-    """Janela completa para análise gerencial mensal, gráficos e exportação em PDF/CSV."""
+    """Janela completa para análise gerencial mensal, gráficos e exportação em PDF/Excel."""
 
     def __init__(
         self,
@@ -59,40 +56,72 @@ class MonthlyReportDialog(QDialog):
         self._current_summary: MonthlyReportSummaryDTO | None = None
 
         self.setWindowTitle("📊 Relatório Mensal de Produção & Gráficos")
-        self.resize(1180, 780)
-        self.setMinimumSize(960, 640)
+        self.resize(1200, 800)
+        self.setMinimumSize(980, 680)
 
         self._build_ui()
         self._load_data()
 
     def _build_ui(self) -> None:
+        self.setStyleSheet(
+            """
+            QDialog { background-color: #0b1329; color: #f8fafc; font-family: 'Segoe UI', Arial, sans-serif; }
+            QLabel { color: #f8fafc; }
+            QComboBox, QSpinBox {
+                background-color: #1e293b; color: #f8fafc; border: 1px solid #475569;
+                border-radius: 6px; padding: 4px 8px; font-weight: bold; min-height: 28px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox QAbstractItemView {
+                background-color: #1e293b; color: #f8fafc; selection-background-color: #2563eb;
+            }
+            QTabWidget::pane { border: 1px solid #334155; border-radius: 8px; background: #172033; }
+            QTabBar::tab {
+                background: #1e293b; color: #94a3b8; border: 1px solid #334155;
+                padding: 7px 18px; border-top-left-radius: 6px; border-top-right-radius: 6px;
+                font-weight: 600; margin-right: 4px;
+            }
+            QTabBar::tab:selected { background: #2563eb; color: #ffffff; border-color: #2563eb; }
+            QTabBar::tab:hover:!selected { background: #334155; color: #f8fafc; }
+            QTableWidget {
+                background-color: #172033; alternate-background-color: #1e293b;
+                gridline-color: #24324a; border: none; color: #f1f5f9;
+            }
+            QHeaderView::section {
+                background-color: #0f172a; color: #94a3b8; font-weight: 700;
+                border: none; border-bottom: 2px solid #334155; padding: 6px 8px;
+            }
+            """
+        )
+
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 14, 16, 14)
-        main_layout.setSpacing(10)
+        main_layout.setContentsMargins(18, 16, 18, 16)
+        main_layout.setSpacing(12)
 
         # 1. Barra Superior de Seleção de Período
         period_frame = QFrame(self)
         period_frame.setObjectName("periodFrame")
         period_frame.setStyleSheet(
-            "QFrame#periodFrame { background: #1e293b; border-radius: 8px; padding: 6px; }"
+            "QFrame#periodFrame { background: #172033; border: 1px solid #334155; border-radius: 8px; padding: 4px; }"
         )
         p_layout = QHBoxLayout(period_frame)
-        p_layout.setContentsMargins(10, 6, 10, 6)
+        p_layout.setContentsMargins(12, 6, 12, 6)
         p_layout.setSpacing(8)
 
         lbl_periodo = QLabel("Período de Análise:", period_frame)
-        lbl_periodo.setStyleSheet("color: #94a3b8; font-weight: bold; font-size: 11pt;")
+        lbl_periodo.setStyleSheet("color: #94a3b8; font-weight: 700; font-size: 10pt;")
         p_layout.addWidget(lbl_periodo)
 
         self.btn_this_month = QPushButton("📅 Este Mês (em andamento)", period_frame)
         self.btn_prev_month = QPushButton("◀ Mês Anterior", period_frame)
         self.btn_prev_2_months = QPushButton("◀◀ 2 Meses Atrás", period_frame)
 
-        for btn in (self.btn_this_month, self.btn_prev_month, self.btn_prev_2_months):
+        self._period_buttons = [self.btn_this_month, self.btn_prev_month, self.btn_prev_2_months]
+        for btn in self._period_buttons:
             btn.setStyleSheet(
-                "QPushButton { background: #334155; color: #f8fafc; border: 1px solid #475569; "
-                "border-radius: 5px; padding: 4px 10px; font-weight: bold; } "
-                "QPushButton:hover { background: #475569; border-color: #38bdf8; }"
+                "QPushButton { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; "
+                "border-radius: 6px; padding: 6px 14px; font-weight: 600; min-height: 24px; } "
+                "QPushButton:hover { background: #334155; color: #ffffff; border-color: #38bdf8; }"
             )
             p_layout.addWidget(btn)
 
@@ -100,7 +129,7 @@ class MonthlyReportDialog(QDialog):
         self.btn_prev_month.clicked.connect(self._select_prev_month)
         self.btn_prev_2_months.clicked.connect(self._select_prev_2_months)
 
-        p_layout.addSpacing(10)
+        p_layout.addSpacing(8)
 
         # Comboboxes diretos de Mês e Ano
         self.combo_month = QComboBox(period_frame)
@@ -118,7 +147,7 @@ class MonthlyReportDialog(QDialog):
 
         p_layout.addStretch(1)
 
-        # Badge de Situação (Mês Fechado vs Em Andamento)
+        # Badge de Situação
         self.status_badge = QLabel("", period_frame)
         self.status_badge.setObjectName("statusBadge")
         p_layout.addWidget(self.status_badge)
@@ -129,31 +158,31 @@ class MonthlyReportDialog(QDialog):
         kpi_layout = QHBoxLayout()
         kpi_layout.setSpacing(10)
 
-        self.card_in = self._create_kpi_card("ENTRADAS NO MÊS", "#2563eb")
-        self.card_out = self._create_kpi_card("CONCLUÍDAS", "#16a34a")
-        self.card_on_time = self._create_kpi_card("NO PRAZO", "#10b981")
-        self.card_delayed = self._create_kpi_card("COM ATRASO", "#ef4444")
-        self.card_in_line = self._create_kpi_card("EM LINHA HOJE", "#f59e0b")
+        self.card_in = self._create_kpi_card("ENTRADAS NO MÊS", "#3b82f6", "#93c5fd")
+        self.card_out = self._create_kpi_card("CONCLUÍDAS", "#10b981", "#86efac")
+        self.card_on_time = self._create_kpi_card("NO PRAZO", "#22c55e", "#4ade80")
+        self.card_delayed = self._create_kpi_card("COM ATRASO", "#ef4444", "#fca5a5")
+        self.card_in_line = self._create_kpi_card("EM LINHA HOJE", "#f59e0b", "#fde047")
 
         for c in (self.card_in, self.card_out, self.card_on_time, self.card_delayed, self.card_in_line):
             kpi_layout.addWidget(c)
 
         main_layout.addLayout(kpi_layout)
 
-        # 3. Painel de Gráficos (3 colunas)
+        # 3. Painel de Gráficos (3 colunas com fundo escuro harmonioso)
         charts_frame = QFrame(self)
         charts_frame.setObjectName("chartsFrame")
         charts_frame.setStyleSheet(
-            "QFrame#chartsFrame { background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 8px; }"
+            "QFrame#chartsFrame { background: #172033; border: 1px solid #334155; border-radius: 8px; }"
         )
         charts_layout = QHBoxLayout(charts_frame)
-        charts_layout.setContentsMargins(12, 10, 12, 10)
-        charts_layout.setSpacing(14)
+        charts_layout.setContentsMargins(14, 10, 14, 10)
+        charts_layout.setSpacing(16)
 
         # Coluna 1: Pontualidade
         col1 = QVBoxLayout()
         col1_title = QLabel("🎯 Pontualidade de Entrega", charts_frame)
-        col1_title.setStyleSheet("font-weight: bold; color: #1e293b; font-size: 10pt;")
+        col1_title.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 10pt;")
         col1.addWidget(col1_title)
         self.donut_widget = PunctualityDonutWidget(charts_frame)
         col1.addWidget(self.donut_widget)
@@ -162,7 +191,7 @@ class MonthlyReportDialog(QDialog):
         # Coluna 2: Fluxo Semanal
         col2 = QVBoxLayout()
         col2_title = QLabel("📊 Fluxo Semanal (Entradas vs Saídas)", charts_frame)
-        col2_title.setStyleSheet("font-weight: bold; color: #1e293b; font-size: 10pt;")
+        col2_title.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 10pt;")
         col2.addWidget(col2_title)
         self.flow_bar_widget = FlowBarChartWidget(charts_frame)
         col2.addWidget(self.flow_bar_widget)
@@ -171,7 +200,7 @@ class MonthlyReportDialog(QDialog):
         # Coluna 3: Distribuição por Setores
         col3 = QVBoxLayout()
         col3_title = QLabel("🏭 OPs por Setor", charts_frame)
-        col3_title.setStyleSheet("font-weight: bold; color: #1e293b; font-size: 10pt;")
+        col3_title.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 10pt;")
         col3.addWidget(col3_title)
         self.sector_bar_widget = SectorBarChartWidget(charts_frame)
         col3.addWidget(self.sector_bar_widget)
@@ -188,10 +217,10 @@ class MonthlyReportDialog(QDialog):
         self.table_delayed = self._create_data_table()
         self.table_in_line = self._create_data_table()
 
-        self.tab_widget.addTab(self.table_all, "Todas as OPs do Mês")
-        self.tab_widget.addTab(self.table_on_time, "Concluídas no Prazo")
-        self.tab_widget.addTab(self.table_delayed, "Concluídas com Atraso")
-        self.tab_widget.addTab(self.table_in_line, "Em Produção no Chão de Fábrica")
+        self.tab_widget.addTab(self.table_all, "Todas as OPs")
+        self.tab_widget.addTab(self.table_on_time, "No Prazo")
+        self.tab_widget.addTab(self.table_delayed, "Com Atraso")
+        self.tab_widget.addTab(self.table_in_line, "Em Produção")
 
         main_layout.addWidget(self.tab_widget, 1)
 
@@ -201,54 +230,58 @@ class MonthlyReportDialog(QDialog):
         self.btn_export_pdf = QPushButton("📄 Exportar Relatório em PDF", self)
         self.btn_export_pdf.setObjectName("primaryButton")
         self.btn_export_pdf.setStyleSheet(
-            "QPushButton#primaryButton { background: #2563eb; color: #ffffff; font-weight: bold; "
-            "padding: 8px 18px; border-radius: 6px; font-size: 10pt; } "
-            "QPushButton#primaryButton:hover { background: #1d4ed8; }"
+            "QPushButton { background: #2563eb; color: #ffffff; font-weight: bold; "
+            "padding: 9px 20px; border-radius: 6px; font-size: 10pt; border: none; } "
+            "QPushButton:hover { background: #1d4ed8; }"
         )
         self.btn_export_pdf.clicked.connect(self._export_pdf)
         bottom_bar.addWidget(self.btn_export_pdf)
 
-        self.btn_export_csv = QPushButton("📊 Exportar Dados em Planilha (CSV / Excel)", self)
-        self.btn_export_csv.setStyleSheet(
-            "QPushButton { background: #0f766e; color: #ffffff; font-weight: bold; "
-            "padding: 8px 16px; border-radius: 6px; font-size: 10pt; } "
-            "QPushButton:hover { background: #0d9488; }"
+        self.btn_export_excel = QPushButton("📊 Exportar Planilha Excel (.xlsx)", self)
+        self.btn_export_excel.setStyleSheet(
+            "QPushButton { background: #16a34a; color: #ffffff; font-weight: bold; "
+            "padding: 9px 20px; border-radius: 6px; font-size: 10pt; border: none; } "
+            "QPushButton:hover { background: #15803d; }"
         )
-        self.btn_export_csv.clicked.connect(self._export_csv)
-        bottom_bar.addWidget(self.btn_export_csv)
+        self.btn_export_excel.clicked.connect(self._export_excel)
+        bottom_bar.addWidget(self.btn_export_excel)
 
         bottom_bar.addStretch(1)
 
         btn_close = QPushButton("Fechar", self)
-        btn_close.setFixedWidth(100)
+        btn_close.setStyleSheet(
+            "QPushButton { background: #334155; color: #f8fafc; font-weight: 600; "
+            "padding: 9px 24px; border-radius: 6px; font-size: 10pt; border: 1px solid #475569; } "
+            "QPushButton:hover { background: #475569; }"
+        )
         btn_close.clicked.connect(self.accept)
         bottom_bar.addWidget(btn_close)
 
         main_layout.addLayout(bottom_bar)
 
-    def _create_kpi_card(self, title: str, border_color: str) -> QFrame:
+    def _create_kpi_card(self, title: str, accent_color: str, sub_color: str) -> QFrame:
         card = QFrame(self)
         card.setObjectName("kpiCard")
         card.setStyleSheet(
-            f"QFrame#kpiCard {{ background: #ffffff; border: 1px solid #cbd5e1; "
-            f"border-left: 5px solid {border_color}; border-radius: 6px; padding: 6px; }}"
+            f"QFrame#kpiCard {{ background: #172033; border: 1px solid #334155; "
+            f"border-left: 4px solid {accent_color}; border-radius: 6px; padding: 6px; }}"
         )
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(8, 6, 8, 6)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(2)
 
         lbl_title = QLabel(title, card)
-        lbl_title.setStyleSheet("color: #64748b; font-size: 8pt; font-weight: bold; letter-spacing: 0.5px;")
+        lbl_title.setStyleSheet("color: #94a3b8; font-size: 8pt; font-weight: 700; letter-spacing: 0.5px;")
         layout.addWidget(lbl_title)
 
         lbl_value = QLabel("0 OPs", card)
         lbl_value.setObjectName("kpiValue")
-        lbl_value.setStyleSheet("color: #0f172a; font-size: 15pt; font-weight: 900;")
+        lbl_value.setStyleSheet("color: #f8fafc; font-size: 16pt; font-weight: 900;")
         layout.addWidget(lbl_value)
 
         lbl_sub = QLabel("-", card)
         lbl_sub.setObjectName("kpiSub")
-        lbl_sub.setStyleSheet("color: #64748b; font-size: 8pt;")
+        lbl_sub.setStyleSheet(f"color: {sub_color}; font-size: 8.5pt; font-weight: 600;")
         layout.addWidget(lbl_sub)
 
         return card
@@ -270,6 +303,7 @@ class MonthlyReportDialog(QDialog):
         ])
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setAlternatingRowColors(True)
         table.verticalHeader().setVisible(False)
         table.horizontalHeader().setStretchLastSection(True)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
@@ -281,6 +315,7 @@ class MonthlyReportDialog(QDialog):
         today = date.today()
         self.spin_year.setValue(today.year)
         self.combo_month.setCurrentIndex(today.month - 1)
+        self._highlight_button(self.btn_this_month)
 
     def _select_prev_month(self) -> None:
         today = date.today()
@@ -291,6 +326,7 @@ class MonthlyReportDialog(QDialog):
             y -= 1
         self.spin_year.setValue(y)
         self.combo_month.setCurrentIndex(m - 1)
+        self._highlight_button(self.btn_prev_month)
 
     def _select_prev_2_months(self) -> None:
         today = date.today()
@@ -301,6 +337,21 @@ class MonthlyReportDialog(QDialog):
             y -= 1
         self.spin_year.setValue(y)
         self.combo_month.setCurrentIndex(m - 1)
+        self._highlight_button(self.btn_prev_2_months)
+
+    def _highlight_button(self, active_btn: QPushButton) -> None:
+        for btn in self._period_buttons:
+            if btn is active_btn:
+                btn.setStyleSheet(
+                    "QPushButton { background: #2563eb; color: #ffffff; border: 1px solid #3b82f6; "
+                    "border-radius: 6px; padding: 6px 14px; font-weight: bold; min-height: 24px; }"
+                )
+            else:
+                btn.setStyleSheet(
+                    "QPushButton { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; "
+                    "border-radius: 6px; padding: 6px 14px; font-weight: 600; min-height: 24px; } "
+                    "QPushButton:hover { background: #334155; color: #ffffff; border-color: #38bdf8; }"
+                )
 
     def _on_combo_changed(self) -> None:
         self._current_year = self.spin_year.value()
@@ -315,12 +366,12 @@ class MonthlyReportDialog(QDialog):
         if summary.is_mes_fechado:
             self.status_badge.setText("● MÊS FECHADO / CONCLUÍDO")
             self.status_badge.setStyleSheet(
-                "background: #166534; color: #ffffff; padding: 6px 12px; border-radius: 6px; font-weight: bold;"
+                "background: #14532d; color: #86efac; border: 1px solid #166534; padding: 6px 14px; border-radius: 6px; font-weight: bold;"
             )
         else:
             self.status_badge.setText(f"● PARCIAL EM ANDAMENTO (até {format_br_date(summary.data_referencia)})")
             self.status_badge.setStyleSheet(
-                "background: #b45309; color: #ffffff; padding: 6px 12px; border-radius: 6px; font-weight: bold;"
+                "background: #78350f; color: #fde047; border: 1px solid #92400e; padding: 6px 14px; border-radius: 6px; font-weight: bold;"
             )
 
         # Atualiza Cards de KPI
@@ -393,16 +444,16 @@ class MonthlyReportDialog(QDialog):
 
             if op.categoria == "CONCLUIDA_NO_PRAZO":
                 badge_item = QTableWidgetItem("✔ No Prazo")
-                badge_item.setForeground(QColor("#15803d"))
+                badge_item.setForeground(QColor("#4ade80"))
             elif op.categoria == "CONCLUIDA_COM_ATRASO":
                 badge_item = QTableWidgetItem("✖ Com Atraso")
-                badge_item.setForeground(QColor("#b91c1c"))
+                badge_item.setForeground(QColor("#f87171"))
             elif op.categoria == "EM_ATRASO":
                 badge_item = QTableWidgetItem("🚨 Atrasada Hoje")
-                badge_item.setForeground(QColor("#dc2626"))
+                badge_item.setForeground(QColor("#ef4444"))
             else:
                 badge_item = QTableWidgetItem("⚙ Em Linha")
-                badge_item.setForeground(QColor("#2563eb"))
+                badge_item.setForeground(QColor("#60a5fa"))
 
             table.setItem(r, 9, badge_item)
 
@@ -438,26 +489,26 @@ class MonthlyReportDialog(QDialog):
         except Exception as exc:
             QMessageBox.critical(self, "Erro na Exportação", f"Não foi possível gerar o PDF:\n{exc}")
 
-    def _export_csv(self) -> None:
+    def _export_excel(self) -> None:
         if not self._current_summary:
             return
 
-        default_name = f"Dados_Producao_{self._current_summary.nome_mes}_{self._current_summary.ano}.csv"
+        default_name = f"Dados_Producao_{self._current_summary.nome_mes}_{self._current_summary.ano}.xlsx"
         file_path, _ = QFileDialog.getSaveFileName(
             self,
-            "Salvar Dados da Produção em CSV / Planilha",
+            "Salvar Planilha Excel (.xlsx)",
             str(Path.home() / default_name),
-            "Arquivos CSV (*.csv)",
+            "Planilha do Excel (*.xlsx)",
         )
         if not file_path:
             return
 
         try:
-            saved = self.service.export_to_csv(self._current_summary, file_path)
+            saved = self.service.export_to_excel(self._current_summary, file_path)
             res = QMessageBox.information(
                 self,
-                "CSV Exportado",
-                f"Dados exportados com sucesso em:\n{saved}\n\nDeseja abrir o arquivo no Excel agora?",
+                "Planilha Exportada",
+                f"Planilha exportada com sucesso em:\n{saved}\n\nDeseja abrir no Excel agora?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
             if res == QMessageBox.StandardButton.Yes:
