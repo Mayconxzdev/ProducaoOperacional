@@ -49,15 +49,15 @@ def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_cou
 
     _ = QGuiApplication.instance() or QGuiApplication([])
 
-    img = QImage(240, 240, QImage.Format.Format_ARGB32)
+    img = QImage(280, 280, QImage.Format.Format_ARGB32)
     img.fill(Qt.GlobalColor.transparent)
 
     painter = QPainter(img)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
 
-    rect = QRectF(20, 20, 200, 200)
-    pen_width = 24
+    rect = QRectF(22, 22, 236, 236)
+    pen_width = 28
     rect.adjust(pen_width / 2, pen_width / 2, -pen_width / 2, -pen_width / 2)
 
     total = on_time_count + delayed_count
@@ -69,7 +69,7 @@ def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_cou
         painter.drawEllipse(rect)
 
         painter.setPen(QColor("#64748b"))
-        painter.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
+        painter.setFont(QFont("Segoe UI", 22, QFont.Weight.Bold))
         t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
         painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "N/A")
 
@@ -85,7 +85,7 @@ def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_cou
         painter.drawEllipse(rect)
 
         painter.setPen(QColor("#15803d"))
-        painter.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
         t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
         painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "100.0%")
 
@@ -101,7 +101,7 @@ def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_cou
         painter.drawEllipse(rect)
 
         painter.setPen(QColor("#b91c1c"))
-        painter.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
         t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
         painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, "0.0%")
 
@@ -123,7 +123,7 @@ def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_cou
         painter.drawArc(rect, 90 * 16, -span_angle)
 
         painter.setPen(QColor("#0f172a"))
-        painter.setFont(QFont("Segoe UI", 24, QFont.Weight.Bold))
+        painter.setFont(QFont("Segoe UI", 26, QFont.Weight.Bold))
         t_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.35)
         painter.drawText(t_rect, Qt.AlignmentFlag.AlignCenter, f"{on_time_pct:.1f}%")
 
@@ -300,6 +300,17 @@ class MonthlyReportService:
         if concluded_count > 0:
             taxa_pontualidade = round((on_time_count / concluded_count) * 100.0, 1)
 
+        # Taxa de conformidade de cronograma:
+        # Se for mês fechado, a conformidade reflete o cumprimento integral de prazos das entregas.
+        # Se for mês em andamento, mede o percentual da carteira ativa hoje sem atraso na fábrica.
+        if is_mes_fechado:
+            taxa_conformidade = taxa_pontualidade
+        else:
+            if in_production_now > 0:
+                taxa_conformidade = round(((in_production_now - in_delay_now) / in_production_now) * 100.0, 1)
+            else:
+                taxa_conformidade = 100.0
+
         lead_time_medio = 0.0
         if lead_time_ops_count > 0:
             lead_time_medio = round(lead_time_days_total / lead_time_ops_count, 1)
@@ -363,6 +374,7 @@ class MonthlyReportService:
             concluidas_no_prazo=on_time_count,
             concluidas_com_atraso=delayed_count,
             taxa_pontualidade=taxa_pontualidade,
+            taxa_conformidade=taxa_conformidade,
             lead_time_medio_dias=lead_time_medio,
             em_producao_agora=in_production_now,
             em_atraso_agora=in_delay_now,
@@ -421,9 +433,10 @@ class MonthlyReportService:
         kpis = [
             ("Total de OPs Criadas no Mês", f"{summary.total_criadas} OPs", f"{summary.total_criadas_pecas} peças"),
             ("Total de OPs Concluídas no Mês", f"{summary.total_concluidas} OPs", f"{summary.total_concluidas_pecas} peças | Ciclo Médio: {summary.lead_time_medio_dias:.1f} dias" if summary.total_concluidas > 0 else "Sem conclusões no mês"),
-            ("Entregas Rigorosamente no Prazo", f"{summary.concluidas_no_prazo} OPs", f"Pontualidade: {summary.taxa_pontualidade:.1f}%" if summary.total_concluidas > 0 else "N/A"),
+            ("Entregue no Prazo (OTD)", f"{summary.taxa_pontualidade:.1f}%", f"{summary.concluidas_no_prazo} de {summary.total_concluidas or 0} entregues no prazo" if summary.total_concluidas > 0 else "N/A"),
             ("Entregas com Atraso", f"{summary.concluidas_com_atraso} OPs", f"Taxa de Atraso: {(100.0 - summary.taxa_pontualidade) if summary.total_concluidas > 0 else 0.0:.1f}%"),
             ("Em Produção no Chão de Fábrica", f"{summary.em_producao_agora} OPs", f"{summary.em_atraso_agora} atualmente em atraso hoje" if summary.em_atraso_agora > 0 else "Todas no prazo"),
+            ("Índice de Conformidade de Cronograma", f"{summary.taxa_conformidade:.1f}%", "Carteira ativa em conformidade total" if summary.em_atraso_agora == 0 else f"{summary.em_atraso_agora} OPs com atraso na linha hoje"),
             ("Previsão de Entrega até Fim do Mês", f"{summary.previsao_restante_mes} OPs", "Entregas programadas restantes"),
         ]
 
@@ -587,7 +600,8 @@ class MonthlyReportService:
             writer.writerow(["Volume de Peças Concluídas", summary.total_concluidas_pecas])
             writer.writerow(["Concluídas no Prazo", summary.concluidas_no_prazo])
             writer.writerow(["Concluídas com Atraso", summary.concluidas_com_atraso])
-            writer.writerow(["Índice de Pontualidade (%)", f"{summary.taxa_pontualidade}%"])
+            writer.writerow(["Taxa de Entrega no Prazo (OTD - %)", f"{summary.taxa_pontualidade}%"])
+            writer.writerow(["Índice de Conformidade de Cronograma (%)", f"{summary.taxa_conformidade}%"])
             writer.writerow(["Lead Time Médio (Dias)", f"{summary.lead_time_medio_dias} dias"])
             writer.writerow([])
 
@@ -712,9 +726,9 @@ class MonthlyReportService:
 
     def _generate_html_report(self, s: MonthlyReportSummaryDTO) -> str:
         status_badge = (
-            "<span style='display: inline-block; white-space: nowrap; background: #14532d; color: #86efac; border: 1px solid #166534; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 10px;'>MÊS FECHADO / CONCLUÍDO</span>"
+            "<span style='display: inline-block; white-space: nowrap; background: #14532d; color: #86efac; border: 1px solid #166534; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 10.5px;'>MÊS FECHADO / CONCLUÍDO</span>"
             if s.is_mes_fechado
-            else f"<span style='display: inline-block; white-space: nowrap; background: #78350f; color: #fde047; border: 1px solid #92400e; padding: 4px 12px; border-radius: 6px; font-weight: bold; font-size: 10px;'>PARCIAL EM ANDAMENTO (até {format_br_date(s.data_referencia)})</span>"
+            else f"<span style='display: inline-block; white-space: nowrap; background: #78350f; color: #fde047; border: 1px solid #92400e; padding: 4px 14px; border-radius: 6px; font-weight: bold; font-size: 10.5px;'>PARCIAL EM ANDAMENTO (até {format_br_date(s.data_referencia)})</span>"
         )
 
         rows_html = []
@@ -723,34 +737,34 @@ class MonthlyReportService:
             bg_tr = "#ffffff" if idx % 2 == 0 else "#f8fafc"
 
             if op.categoria == "CONCLUIDA_NO_PRAZO":
-                badge = "<span style='display: inline-block; white-space: nowrap; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; padding: 1px 6px; border-radius: 8px; font-weight: bold; font-size: 8px;'>✔ No Prazo</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>✔ No Prazo</span>"
             elif op.categoria == "CONCLUIDA_COM_ATRASO":
-                badge = "<span style='display: inline-block; white-space: nowrap; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 1px 6px; border-radius: 8px; font-weight: bold; font-size: 8px;'>✖ Com Atraso</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>✖ Com Atraso</span>"
             elif op.categoria == "EM_ATRASO":
-                badge = "<span style='display: inline-block; white-space: nowrap; background: #ffe4e6; color: #dc2626; border: 1px solid #fecdd3; padding: 1px 6px; border-radius: 8px; font-weight: bold; font-size: 8px;'>🚨 Atrasada Hoje</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #ffe4e6; color: #dc2626; border: 1px solid #fecdd3; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>🚨 Atrasada Hoje</span>"
             else:
-                badge = "<span style='display: inline-block; white-space: nowrap; background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 1px 6px; border-radius: 8px; font-weight: bold; font-size: 8px;'>⚙ Em Linha</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 8px; font-weight: bold; font-size: 9px;'>⚙ Em Linha</span>"
 
             rows_html.append(
                 f"""
                 <tr style='background-color: {bg_tr};'>
-                    <td style='font-weight: 700; padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #0f172a;'>{op.numero_op}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;'>{op.cliente}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; color: #334155;'>{op.modelo}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #0f172a;'>{op.quantidade or '-'}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.setor_nome}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_inicio) or '-'}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_entrega) or '-'}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: #0f172a;'>{op.dias_producao if op.dias_producao is not None else '-'} d</td>
-                    <td style='padding: 2.5px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>{badge}</td>
+                    <td style='font-weight: 700; padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #0f172a;'>{op.numero_op}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #1e293b; font-weight: 600;'>{op.cliente}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #334155;'>{op.modelo}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold; color: #0f172a;'>{op.quantidade or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.setor_nome}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_inicio) or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_entrega) or '-'}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: #0f172a;'>{op.dias_producao if op.dias_producao is not None else '-'} d</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>{badge}</td>
                 </tr>
                 """
             )
 
         # Gráfico Donut de Pontualidade renderizado como imagem PNG em Base64 (100% compatível e sem risco de sumir)
         donut_b64 = _render_donut_png_base64(s.taxa_pontualidade, s.concluidas_no_prazo, s.concluidas_com_atraso)
-        donut_img = f'<img src="data:image/png;base64,{donut_b64}" width="112" height="112" style="display: block; margin: 0 auto;" />'
+        donut_img = f'<img src="data:image/png;base64,{donut_b64}" width="135" height="135" style="display: block; margin: 0 auto;" />'
 
         # Barras de semanas com barras comparativas paralelas
         weeks_html = []
@@ -760,25 +774,25 @@ class MonthlyReportService:
             out_pct = int((w.saidas / max_ops) * 100) if max_ops > 0 else 0
             weeks_html.append(
                 f"""
-                <div style='margin-bottom: 4px;'>
-                    <table style='width: 100%; font-size: 9px; font-weight: 700; color: #334155; margin-bottom: 1px;'>
+                <div style='margin-bottom: 5px;'>
+                    <table style='width: 100%; font-size: 10px; font-weight: 700; color: #334155; margin-bottom: 2px;'>
                         <tr>
                             <td style='text-align: left; padding: 0;'>{w.label}</td>
-                            <td style='text-align: right; padding: 0; font-size: 8.5px;'>
+                            <td style='text-align: right; padding: 0; font-size: 9.5px;'>
                                 <strong style='color: #2563eb;'>{w.entradas} in</strong> &nbsp;|&nbsp; <strong style='color: #16a34a;'>{w.saidas} out</strong>
                             </td>
                         </tr>
                     </table>
                     <table style='width: 100%; border-collapse: collapse;'>
                         <tr>
-                            <td style='width: 50%; padding-right: 3px;'>
-                                <div style='background: #f1f5f9; height: 6px; border-radius: 3px; overflow: hidden;'>
-                                    <div style='background: #3b82f6; width: {in_pct}%; height: 6px; border-radius: 3px;'></div>
+                            <td style='width: 50%; padding-right: 4px;'>
+                                <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                                    <div style='background: #3b82f6; width: {in_pct}%; height: 8px; border-radius: 4px;'></div>
                                 </div>
                             </td>
-                            <td style='width: 50%; padding-left: 3px;'>
-                                <div style='background: #f1f5f9; height: 6px; border-radius: 3px; overflow: hidden;'>
-                                    <div style='background: #10b981; width: {out_pct}%; height: 6px; border-radius: 3px;'></div>
+                            <td style='width: 50%; padding-left: 4px;'>
+                                <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                                    <div style='background: #10b981; width: {out_pct}%; height: 8px; border-radius: 4px;'></div>
                                 </div>
                             </td>
                         </tr>
@@ -796,8 +810,8 @@ class MonthlyReportService:
             peca_txt = "1 peça" if sec.total_quantidade == 1 else f"{sec.total_quantidade} peças"
             sector_bars.append(
                 f"""
-                <div style='margin-bottom: 4px;'>
-                    <table style='width: 100%; font-size: 9px; color: #1e293b; margin-bottom: 1px;'>
+                <div style='margin-bottom: 5px;'>
+                    <table style='width: 100%; font-size: 10px; color: #1e293b; margin-bottom: 2px;'>
                         <tr>
                             <td style='text-align: left; font-weight: 700; padding: 0;'>{sec.setor_nome}</td>
                             <td style='text-align: right; font-weight: 700; color: #334155; padding: 0;'>
@@ -805,17 +819,17 @@ class MonthlyReportService:
                             </td>
                         </tr>
                     </table>
-                    <div style='background: #f1f5f9; height: 6px; border-radius: 3px; overflow: hidden;'>
-                        <div style='background: {sec.cor}; width: {pct}%; height: 6px; border-radius: 3px;'></div>
+                    <div style='background: #f1f5f9; height: 8px; border-radius: 4px; overflow: hidden;'>
+                        <div style='background: {sec.cor}; width: {pct}%; height: 8px; border-radius: 4px;'></div>
                     </div>
                 </div>
                 """
             )
 
-        # Mini tabela de OPs Concluídas no Mês para o Dashboard Executivo da Página 1 (até 5 mais recentes)
+        # Mini tabela de OPs Concluídas no Mês para o Dashboard Executivo da Página 1 (até 6 mais recentes)
         concluded_ops = [op for op in s.ops if op.completed_at]
         concluded_rows = []
-        for idx, op in enumerate(concluded_ops[:5]):
+        for idx, op in enumerate(concluded_ops[:6]):
             dt_conc = op.completed_at.strftime("%d/%m/%Y") if op.completed_at else "-"
             bg = "#ffffff" if idx % 2 == 0 else "#f8fafc"
             b_color = "#15803d" if op.categoria == "CONCLUIDA_NO_PRAZO" else "#b91c1c"
@@ -824,13 +838,13 @@ class MonthlyReportService:
             concluded_rows.append(
                 f"""
                 <tr style='background: {bg};'>
-                    <td style='font-weight: bold; padding: 3px 5px; border-bottom: 1px solid #e2e8f0; text-align: center;'>{op.numero_op}</td>
-                    <td style='padding: 3px 5px; border-bottom: 1px solid #e2e8f0;'>{op.cliente[:24]}</td>
-                    <td style='padding: 3px 5px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.modelo[:26]}</td>
-                    <td style='padding: 3px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
-                    <td style='padding: 3px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold;'>{op.dias_producao or '-'} d</td>
-                    <td style='padding: 3px 5px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>
-                        <span style='display: inline-block; white-space: nowrap; background: {b_bg}; color: {b_color}; padding: 1px 6px; border-radius: 8px; font-weight: bold; font-size: 8.5px;'>{b_txt}</span>
+                    <td style='font-weight: bold; padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center;'>{op.numero_op}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0;'>{op.cliente[:24]}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.modelo[:26]}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold;'>{op.dias_producao or '-'} d</td>
+                    <td style='padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>
+                        <span style='display: inline-block; white-space: nowrap; background: {b_bg}; color: {b_color}; padding: 2px 7px; border-radius: 8px; font-weight: bold; font-size: 9px;'>{b_txt}</span>
                     </td>
                 </tr>
                 """
@@ -843,9 +857,9 @@ class MonthlyReportService:
             d_op = delayed_in_line[0]
             prazo_str = format_br_date(d_op.data_entrega) or "N/D"
             alert_html = f"""
-            <div style='background: #fef2f2; border: 1px solid #fecaca; border-radius: 5px; padding: 5px 8px; margin-top: 6px;'>
-                <div style='color: #dc2626; font-size: 9px; font-weight: bold;'>🚨 OP com Prazo Vencido em Produção:</div>
-                <div style='font-size: 9px; color: #991b1b; margin-top: 2px;'>
+            <div style='background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 6px 10px; margin-top: 6px;'>
+                <div style='color: #dc2626; font-size: 10px; font-weight: bold;'>🚨 OP com Prazo Vencido em Produção:</div>
+                <div style='font-size: 9.5px; color: #991b1b; margin-top: 2px;'>
                     <strong>OP {d_op.numero_op}</strong> &bull; {d_op.cliente} ({d_op.setor_nome})<br>
                     Prazo previsto era <strong>{prazo_str}</strong> (em produção há {d_op.dias_producao} dias)
                 </div>
@@ -853,9 +867,9 @@ class MonthlyReportService:
             """
         else:
             alert_html = """
-            <div style='background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 5px; padding: 5px 8px; margin-top: 6px;'>
-                <div style='color: #16a34a; font-size: 9px; font-weight: bold;'>✔ Nenhuma OP com prazo vencido na linha hoje</div>
-                <div style='font-size: 8.5px; color: #15803d; margin-top: 1px;'>Todas as ordens em fabricação estão rigorosamente dentro do cronograma.</div>
+            <div style='background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 6px 10px; margin-top: 6px;'>
+                <div style='color: #16a34a; font-size: 10px; font-weight: bold;'>✔ Conformidade Total: Nenhuma OP atrasada na linha hoje</div>
+                <div style='font-size: 9px; color: #15803d; margin-top: 2px;'>Todas as ordens em fabricação estão rigorosamente dentro do cronograma acordado.</div>
             </div>
             """
 
@@ -869,7 +883,7 @@ class MonthlyReportService:
             <style>
                 @page {{
                     size: A4 landscape;
-                    margin: 5mm 6mm 5mm 6mm;
+                    margin: 6mm 8mm 6mm 8mm;
                 }}
                 * {{ box-sizing: border-box; }}
                 body {{
@@ -881,33 +895,33 @@ class MonthlyReportService:
                     -webkit-print-color-adjust: exact;
                     print-color-adjust: exact;
                 }}
-                .header-table {{ width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 4px; margin-bottom: 6px; }}
+                .header-table {{ width: 100%; border-bottom: 2px solid #2563eb; padding-bottom: 5px; margin-bottom: 8px; }}
                 .kpi-card {{
-                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 5px;
-                    padding: 5px 7px; text-align: left;
+                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;
+                    padding: 8px 10px; text-align: left;
                 }}
-                .kpi-title {{ font-size: 8px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }}
-                .kpi-num {{ font-size: 15px; font-weight: 900; color: #0f172a; margin: 1px 0; }}
-                .kpi-sub {{ font-size: 8.5px; font-weight: 600; color: #475569; }}
+                .kpi-title {{ font-size: 8.5px; font-weight: 800; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }}
+                .kpi-num {{ font-size: 20px; font-weight: 900; color: #0f172a; margin: 2px 0; }}
+                .kpi-sub {{ font-size: 10px; font-weight: 600; color: #475569; }}
 
                 .chart-panel {{
-                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 5px;
-                    padding: 6px 8px;
+                    background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 6px;
+                    padding: 8px 10px;
                 }}
-                .panel-title {{ font-size: 9.5px; font-weight: 800; color: #0f172a; margin-bottom: 3px; border-bottom: 1px solid #e2e8f0; padding-bottom: 2px; }}
+                .panel-title {{ font-size: 10.5px; font-weight: 800; color: #0f172a; margin-bottom: 4px; border-bottom: 1px solid #e2e8f0; padding-bottom: 3px; }}
 
-                table.data {{ width: 100%; border-collapse: collapse; font-size: 8px; }}
+                table.data {{ width: 100%; border-collapse: collapse; font-size: 9.5px; }}
                 table.data th {{
                     background-color: #1e3a8a; color: #ffffff; font-weight: 700;
-                    padding: 3.5px 4px; text-align: left; font-size: 8px;
+                    padding: 5px 6px; text-align: left; font-size: 9px;
                 }}
                 table.data td {{
-                    padding: 2px 4px; border-bottom: 1px solid #e2e8f0;
+                    padding: 4.5px 6px; border-bottom: 1px solid #e2e8f0;
                 }}
                 table.data tr {{ page-break-inside: avoid; }}
                 .page-footer {{
-                    margin-top: 4px; border-top: 1px solid #cbd5e1; padding-top: 3px;
-                    font-size: 8px; color: #94a3b8; display: table; width: 100%;
+                    margin-top: 6px; border-top: 1px solid #cbd5e1; padding-top: 4px;
+                    font-size: 8.5px; color: #94a3b8; display: table; width: 100%;
                 }}
             </style>
         </head>
@@ -918,18 +932,18 @@ class MonthlyReportService:
             <table class='header-table'>
                 <tr>
                     <td style='vertical-align: middle;'>
-                        <div style='font-size: 18px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL</div>
-                        <div style='font-size: 10px; color: #64748b; font-weight: 600;'>Relatório Executivo de Desempenho e Indicadores Industriais</div>
+                        <div style='font-size: 20px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL</div>
+                        <div style='font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;'>Relatório Executivo de Desempenho e Indicadores Industriais</div>
                     </td>
                     <td style='vertical-align: middle; text-align: right;'>
-                        <div style='font-size: 16px; font-weight: 900; color: #0f172a;'>{s.nome_mes.upper()} / {s.ano}</div>
-                        <div style='margin-top: 3px;'>{status_badge}</div>
+                        <div style='font-size: 18px; font-weight: 900; color: #0f172a;'>{s.nome_mes.upper()} / {s.ano}</div>
+                        <div style='margin-top: 4px;'>{status_badge}</div>
                     </td>
                 </tr>
             </table>
 
             <!-- 5 KPIs em Grid Horizontal Nativo (Tabela 100% blindada) -->
-            <table style='width: 100%; border-collapse: separate; border-spacing: 6px 0; margin-bottom: 7px; table-layout: fixed;'>
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 9px; table-layout: fixed;'>
                 <tr>
                     <td style='width: 20%; vertical-align: top; padding: 0;'>
                         <div class='kpi-card' style='border-left: 4px solid #3b82f6;'>
@@ -947,7 +961,7 @@ class MonthlyReportService:
                     </td>
                     <td style='width: 20%; vertical-align: top; padding: 0;'>
                         <div class='kpi-card' style='border-left: 4px solid #22c55e;'>
-                            <div class='kpi-title'>No Prazo</div>
+                            <div class='kpi-title'>Entregue no Prazo (OTD)</div>
                             <div class='kpi-num' style='color: #15803d;'>{s.concluidas_no_prazo} OPs</div>
                             <div class='kpi-sub' style='color: #15803d;'>{f'Pontualidade: {s.taxa_pontualidade:.1f}%' if s.total_concluidas > 0 else 'N/A'}</div>
                         </div>
@@ -963,30 +977,30 @@ class MonthlyReportService:
                         <div class='kpi-card' style='border-left: 4px solid #f59e0b;'>
                             <div class='kpi-title'>Em Produção Hoje</div>
                             <div class='kpi-num' style='color: #b45309;'>{s.em_producao_agora} OPs</div>
-                            <div class='kpi-sub' style='color: {"#dc2626" if s.em_atraso_agora > 0 else "#15803d"};'>{f"{s.em_atraso_agora} em atraso hoje" if s.em_atraso_agora > 0 else "Todas no prazo"}</div>
+                            <div class='kpi-sub' style='color: {"#dc2626" if s.em_atraso_agora > 0 else "#15803d"};'>{f"Conformidade: {s.taxa_conformidade:.1f}% • {s.em_atraso_agora} atraso" if s.em_atraso_agora > 0 else f"Conformidade: {s.taxa_conformidade:.1f}% • Em dia"}</div>
                         </div>
                     </td>
                 </tr>
             </table>
 
             <!-- Painéis com Gráficos Horizontais -->
-            <table style='width: 100%; border-collapse: separate; border-spacing: 6px 0; margin-bottom: 7px; table-layout: fixed;'>
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-bottom: 9px; table-layout: fixed;'>
                 <tr>
-                    <td style='width: 25%; vertical-align: top; padding: 0;'>
+                    <td style='width: 26%; vertical-align: top; padding: 0;'>
                         <div class='chart-panel' style='text-align: center;'>
-                            <div class='panel-title' style='text-align: left;'>🎯 Pontualidade</div>
-                            <div style='margin: 3px 0;'>
+                            <div class='panel-title' style='text-align: left;'>🎯 Entregue no Prazo (OTD)</div>
+                            <div style='margin: 4px 0;'>
                                 {donut_img}
                             </div>
-                            <div style='font-size: 9.5px; color: #475569; font-weight: bold;'>
-                                <span style='color: #22c55e;'>✔ {s.concluidas_no_prazo} no prazo</span> &bull; <span style='color: #ef4444;'>✖ {s.concluidas_com_atraso} com atraso</span>
+                            <div style='font-size: 10px; color: #475569; font-weight: bold; margin-top: 3px;'>
+                                <span style='color: #15803d;'>✔ {s.concluidas_no_prazo} no prazo</span> &bull; <span style='color: #dc2626;'>✖ {s.concluidas_com_atraso} com atraso</span>
                             </div>
                         </div>
                     </td>
-                    <td style='width: 40%; vertical-align: top; padding: 0;'>
+                    <td style='width: 39%; vertical-align: top; padding: 0;'>
                         <div class='chart-panel'>
                             <div class='panel-title'>📊 Fluxo Semanal (Entradas vs Conclusões)</div>
-                            <div style='font-size: 8.5px; margin-bottom: 4px; color: #64748b;'>
+                            <div style='font-size: 9px; margin-bottom: 5px; color: #64748b;'>
                                 <span style='color: #2563eb; font-weight: bold;'>■ Entradas</span> &nbsp;&bull;&nbsp; <span style='color: #16a34a; font-weight: bold;'>■ Conclusões</span>
                             </div>
                             {''.join(weeks_html) if weeks_html else '<em>Sem movimentação semanal</em>'}
@@ -995,7 +1009,7 @@ class MonthlyReportService:
                     <td style='width: 35%; vertical-align: top; padding: 0;'>
                         <div class='chart-panel'>
                             <div class='panel-title'>🏭 Distribuição por Setores</div>
-                            <div style='margin-top: 3px;'>
+                            <div style='margin-top: 4px;'>
                                 {''.join(sector_bars) if sector_bars else '<em>Sem OPs alocadas</em>'}
                             </div>
                         </div>
@@ -1007,54 +1021,58 @@ class MonthlyReportService:
         if multi_page:
             # PÁGINA 1: Bloco de Síntese Executiva que preenche a página perfeitamente
             html += f"""
-            <table style='width: 100%; border-collapse: separate; border-spacing: 6px 0; margin-top: 4px; table-layout: fixed;'>
+            <table style='width: 100%; border-collapse: separate; border-spacing: 8px 0; margin-top: 6px; table-layout: fixed;'>
                 <tr>
                     <td style='width: 58%; vertical-align: top; padding: 0;'>
                         <div class='chart-panel'>
                             <div class='panel-title'>🏁 Síntese das Entregas Finalizadas no Mês ({s.total_concluidas} OPs concluídas)</div>
-                            <table style='width: 100%; border-collapse: collapse; font-size: 8.5px;'>
+                            <table style='width: 100%; border-collapse: collapse; font-size: 9.5px;'>
                                 <thead>
                                     <tr style='background: #e2e8f0; color: #1e293b;'>
-                                        <th style='padding: 3px 5px; text-align: center; width: 45px;'>OP</th>
-                                        <th style='padding: 3px 5px; text-align: left;'>Cliente</th>
-                                        <th style='padding: 3px 5px; text-align: left;'>Modelo</th>
-                                        <th style='padding: 3px 5px; text-align: center; width: 68px;'>Conclusão</th>
-                                        <th style='padding: 3px 5px; text-align: center; width: 42px;'>Ciclo</th>
-                                        <th style='padding: 3px 5px; text-align: center; width: 85px;'>Situação</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 45px;'>OP</th>
+                                        <th style='padding: 4.5px 6px; text-align: left;'>Cliente</th>
+                                        <th style='padding: 4.5px 6px; text-align: left;'>Modelo</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 75px;'>Conclusão</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 45px;'>Ciclo</th>
+                                        <th style='padding: 4.5px 6px; text-align: center; width: 95px;'>Situação</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {''.join(concluded_rows) if concluded_rows else '<tr><td colspan=\"6\" style=\"text-align: center; padding: 10px; color: #64748b;\">Nenhuma OP concluída no período selecionado.</td></tr>'}
+                                    {''.join(concluded_rows) if concluded_rows else '<tr><td colspan=\"6\" style=\"text-align: center; padding: 12px; color: #64748b;\">Nenhuma OP concluída no período selecionado.</td></tr>'}
                                 </tbody>
                             </table>
-                            <div style='font-size: 8px; color: #64748b; margin-top: 3px; font-style: italic;'>
-                                * Consulte o Caderno Detalhado na Página 2 para ver todas as {len(s.ops)} Ordens de Produção em linha.
+                            <div style='font-size: 8.5px; color: #64748b; margin-top: 4px; font-style: italic;'>
+                                * Consulte o Caderno Detalhado na Página 2 para ver todas as {len(s.ops)} Ordens de Produção do mês.
                             </div>
                         </div>
                     </td>
                     <td style='width: 42%; vertical-align: top; padding: 0;'>
                         <div class='chart-panel'>
                             <div class='panel-title'>⚡ Diagnóstico Operacional da Fábrica</div>
-                            <table style='width: 100%; font-size: 9px; border-collapse: collapse;'>
+                            <table style='width: 100%; font-size: 9.5px; border-collapse: collapse;'>
                                 <tr>
-                                    <td style='padding: 3px 0; color: #475569;'>Balanço do Mês:</td>
-                                    <td style='padding: 3px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.total_criadas} entradas vs {s.total_concluidas} saídas ({s.total_criadas - s.total_concluidas:+d})</td>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Balanço do Mês:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.total_criadas} entradas vs {s.total_concluidas} saídas ({s.total_criadas - s.total_concluidas:+d})</td>
                                 </tr>
                                 <tr>
-                                    <td style='padding: 3px 0; color: #475569;'>Taxa de Pontualidade:</td>
-                                    <td style='padding: 3px 0; text-align: right; font-weight: bold; color: #16a34a;'>{s.taxa_pontualidade:.1f}% ({s.concluidas_no_prazo}/{s.total_concluidas or 1})</td>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Taxa Entregue no Prazo (OTD):</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #16a34a;'>{s.taxa_pontualidade:.1f}% ({s.concluidas_no_prazo}/{s.total_concluidas or 1})</td>
                                 </tr>
                                 <tr>
-                                    <td style='padding: 3px 0; color: #475569;'>Ciclo Médio de Fabricação:</td>
-                                    <td style='padding: 3px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.lead_time_medio_dias:.1f} dias</td>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Conformidade de Cronograma:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0284c7;'>{s.taxa_conformidade:.1f}%</td>
                                 </tr>
                                 <tr>
-                                    <td style='padding: 3px 0; color: #475569;'>Volume em Produção Atual:</td>
-                                    <td style='padding: 3px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.em_producao_agora} OPs em linha</td>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Ciclo Médio de Fabricação:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.lead_time_medio_dias:.1f} dias</td>
                                 </tr>
                                 <tr>
-                                    <td style='padding: 3px 0; color: #475569;'>Previsão de Saída no Mês:</td>
-                                    <td style='padding: 3px 0; text-align: right; font-weight: bold; color: #2563eb;'>{s.previsao_restante_mes} OPs programadas</td>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Volume em Produção Atual:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #0f172a;'>{s.em_producao_agora} OPs em linha</td>
+                                </tr>
+                                <tr>
+                                    <td style='padding: 3.5px 0; color: #475569;'>Previsão de Saída no Mês:</td>
+                                    <td style='padding: 3.5px 0; text-align: right; font-weight: bold; color: #2563eb;'>{s.previsao_restante_mes} OPs programadas</td>
                                 </tr>
                             </table>
                             {alert_html}
@@ -1075,12 +1093,12 @@ class MonthlyReportService:
                 <table class='header-table'>
                     <tr>
                         <td style='vertical-align: middle;'>
-                            <div style='font-size: 16px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL — CADERNO DETALHADO</div>
-                            <div style='font-size: 10px; color: #64748b; font-weight: 600;'>Detalhamento Completo das {len(s.ops)} Ordens de Produção ({s.nome_mes} / {s.ano})</div>
+                            <div style='font-size: 18px; font-weight: 900; color: #1e3a8a; letter-spacing: 0.5px;'>PRODUÇÃO OPERACIONAL — CADERNO DETALHADO</div>
+                            <div style='font-size: 11px; color: #64748b; font-weight: 600; margin-top: 2px;'>Detalhamento Completo das {len(s.ops)} Ordens de Produção ({s.nome_mes} / {s.ano})</div>
                         </td>
                         <td style='vertical-align: middle; text-align: right;'>
-                            <div style='font-size: 13px; font-weight: 900; color: #1e3a8a;'>PÁGINA 2 DE 2</div>
-                            <div style='margin-top: 2px;'>{status_badge}</div>
+                            <div style='font-size: 14px; font-weight: 900; color: #1e3a8a;'>PÁGINA 2 DE 2</div>
+                            <div style='margin-top: 3px;'>{status_badge}</div>
                         </td>
                     </tr>
                 </table>
@@ -1089,14 +1107,14 @@ class MonthlyReportService:
                     <thead>
                         <tr>
                             <th style='width: 48px; text-align: center;'>OP</th>
-                            <th style='width: 155px;'>Cliente</th>
+                            <th style='width: 165px;'>Cliente</th>
                             <th>Modelo</th>
                             <th style='width: 36px; text-align: center;'>Qtd</th>
-                            <th style='width: 80px;'>Setor</th>
-                            <th style='width: 70px; text-align: center;'>Início</th>
-                            <th style='width: 70px; text-align: center;'>Entrega</th>
-                            <th style='width: 70px; text-align: center;'>Conclusão</th>
-                            <th style='width: 42px; text-align: center;'>Ciclo</th>
+                            <th style='width: 85px;'>Setor</th>
+                            <th style='width: 72px; text-align: center;'>Início</th>
+                            <th style='width: 72px; text-align: center;'>Entrega</th>
+                            <th style='width: 72px; text-align: center;'>Conclusão</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
                             <th style='width: 115px; text-align: center;'>Situação</th>
                         </tr>
                     </thead>
@@ -1122,14 +1140,14 @@ class MonthlyReportService:
                     <thead>
                         <tr>
                             <th style='width: 48px; text-align: center;'>OP</th>
-                            <th style='width: 155px;'>Cliente</th>
+                            <th style='width: 165px;'>Cliente</th>
                             <th>Modelo</th>
                             <th style='width: 36px; text-align: center;'>Qtd</th>
-                            <th style='width: 80px;'>Setor</th>
-                            <th style='width: 70px; text-align: center;'>Início</th>
-                            <th style='width: 70px; text-align: center;'>Entrega</th>
-                            <th style='width: 70px; text-align: center;'>Conclusão</th>
-                            <th style='width: 42px; text-align: center;'>Ciclo</th>
+                            <th style='width: 85px;'>Setor</th>
+                            <th style='width: 72px; text-align: center;'>Início</th>
+                            <th style='width: 72px; text-align: center;'>Entrega</th>
+                            <th style='width: 72px; text-align: center;'>Conclusão</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
                             <th style='width: 115px; text-align: center;'>Situação</th>
                         </tr>
                     </thead>

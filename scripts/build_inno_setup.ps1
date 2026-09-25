@@ -271,6 +271,7 @@ Invoke-Checked -FilePath $venvPython -Arguments @(
     "--icon", (Join-Path $root "assets\producao_operacional.ico"),
     "--add-data", ((Join-Path $root "assets\producao_operacional.png") + ";assets"),
     "--add-data", ((Join-Path $root "assets\sounds") + ";assets\sounds"),
+    "--collect-all", "openpyxl",
     "--paths", (Join-Path $root "src"),
     (Join-Path $root "run_app.py")
 ) -FailureMessage "PyInstaller falhou."

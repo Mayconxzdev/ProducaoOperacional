@@ -160,7 +160,7 @@ class MonthlyReportDialog(QDialog):
 
         self.card_in = self._create_kpi_card("ENTRADAS NO MÊS", "#3b82f6", "#93c5fd")
         self.card_out = self._create_kpi_card("CONCLUÍDAS", "#10b981", "#86efac")
-        self.card_on_time = self._create_kpi_card("NO PRAZO", "#22c55e", "#4ade80")
+        self.card_on_time = self._create_kpi_card("ENTREGUE NO PRAZO", "#22c55e", "#4ade80")
         self.card_delayed = self._create_kpi_card("COM ATRASO", "#ef4444", "#fca5a5")
         self.card_in_line = self._create_kpi_card("EM LINHA HOJE", "#f59e0b", "#fde047")
 
@@ -398,8 +398,11 @@ class MonthlyReportDialog(QDialog):
         self._update_kpi(self.card_delayed, ops_delayed_txt, f"Taxa de Atraso: {taxa_atraso:.1f}%")
 
         ops_in_line_txt = "1 OP" if summary.em_producao_agora == 1 else f"{summary.em_producao_agora} OPs"
-        atraso_txt = f"{summary.em_atraso_agora} em atraso hoje" if summary.em_atraso_agora > 0 else "Todas no prazo"
-        self._update_kpi(self.card_in_line, ops_in_line_txt, atraso_txt)
+        if summary.is_mes_fechado:
+            conf_txt = f"Conformidade: {summary.taxa_conformidade:.1f}%"
+        else:
+            conf_txt = f"Conformidade: {summary.taxa_conformidade:.1f}% • {summary.em_atraso_agora} atraso" if summary.em_atraso_agora > 0 else f"Conformidade: {summary.taxa_conformidade:.1f}% • Em dia"
+        self._update_kpi(self.card_in_line, ops_in_line_txt, conf_txt)
 
         # Atualiza Gráficos
         self.donut_widget.set_data(

@@ -208,6 +208,7 @@ class MonthlyReportSummaryDTO:
     concluidas_no_prazo: int
     concluidas_com_atraso: int
     taxa_pontualidade: float
+    taxa_conformidade: float
     lead_time_medio_dias: float
     em_producao_agora: int
     em_atraso_agora: int
@@ -215,3 +216,4 @@ class MonthlyReportSummaryDTO:
     setores_stats: tuple[MonthlySectorStatDTO, ...]
     semanas_stats: tuple[MonthlyWeekStatDTO, ...]
     ops: tuple[MonthlyOpItemDTO, ...]
+

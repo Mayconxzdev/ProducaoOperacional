@@ -1093,7 +1093,7 @@ def test_version_and_centralized_formatting_utilities():
     from kanban_app.domain.enums import OP_STATUS_LABELS, op_status_label
     from kanban_app.formatting import contrast_text_color, sector_key
 
-    assert kanban_app.__version__ == "2.4.1"
+    assert kanban_app.__version__ == "2.4.2"
     assert op_status_label(OpStatus.EM_DIA) == "Em dia"
     assert op_status_label("PRIORIDADE") == "Prioridade"
     assert op_status_label("aguardando") == "Aguardando"
