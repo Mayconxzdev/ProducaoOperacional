@@ -153,3 +153,65 @@ class OpReminderDTO:
     created_by_station: str
     created_at: datetime
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyOpItemDTO:
+    op_id: int
+    numero_op: str
+    cliente: str
+    modelo: str
+    quantidade: int | None
+    voltagem: str
+    setor_nome: str
+    status: str
+    data_inicio: date | None
+    data_entrega: date | None
+    completed_at: datetime | None
+    dias_producao: int | None
+    entregue_no_prazo: bool | None
+    esta_em_atraso: bool
+    categoria: str
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlySectorStatDTO:
+    setor_id: str | None
+    setor_nome: str
+    cor: str
+    total_ops: int
+    total_quantidade: int
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyWeekStatDTO:
+    label: str
+    data_inicio: date
+    data_fim: date
+    entradas: int
+    saidas: int
+
+
+@dataclass(frozen=True, slots=True)
+class MonthlyReportSummaryDTO:
+    ano: int
+    mes: int
+    nome_mes: str
+    periodo_inicio: date
+    periodo_fim: date
+    data_referencia: date
+    is_mes_fechado: bool
+    total_criadas: int
+    total_criadas_pecas: int
+    total_concluidas: int
+    total_concluidas_pecas: int
+    concluidas_no_prazo: int
+    concluidas_com_atraso: int
+    taxa_pontualidade: float
+    lead_time_medio_dias: float
+    em_producao_agora: int
+    em_atraso_agora: int
+    previsao_restante_mes: int
+    setores_stats: tuple[MonthlySectorStatDTO, ...]
+    semanas_stats: tuple[MonthlyWeekStatDTO, ...]
+    ops: tuple[MonthlyOpItemDTO, ...]

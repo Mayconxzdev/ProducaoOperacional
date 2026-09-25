@@ -1246,3 +1246,183 @@ def test_tv_settings_include_sound_alert_configuration():
     custom = normalize_tv_settings({"reminder_sound_enabled": False, "reminder_sound_type": "sino_suave"})
     assert custom["reminder_sound_enabled"] is False
     assert custom["reminder_sound_type"] == "sino_suave"
+
+
+def test_monthly_report_calculations_past_and_current_month(tmp_path: Path):
+    from datetime import date, datetime
+    from kanban_app.application.dto import OpFormDTO
+    from kanban_app.application.report_service import MonthlyReportService
+    from kanban_app.domain.enums import OpStatus
+    from kanban_app.infrastructure.db.models import OpModel
+
+    container = make_container(tmp_path)
+    repo = container.repository
+    service = MonthlyReportService(repo)
+
+    active_sectors = repo.list_sectors(active_only=True)
+    sector_id = active_sectors[0].id if active_sectors else None
+
+    # Mês Passado: Junho / 2026
+    # 1. OP criada e concluída no prazo em Junho/2026
+    op1_form = OpFormDTO(
+        numero_op="6001",
+        cliente="CLIENTE A",
+        modelo="MOD-1",
+        quantidade=10,
+        voltagem="220",
+        data_inicio=date(2026, 6, 1),
+        data_entrega=date(2026, 6, 15),
+        setor_id=sector_id,
+        status=OpStatus.CONCLUIDO,
+    )
+    op1 = repo.create_op(op1_form, station_id="st-1")
+    # Ajusta completed_at para 10/06/2026 (no prazo)
+    with repo.database.write_session() as session:
+        db_op1 = session.get(OpModel, op1.id)
+        db_op1.created_at = datetime(2026, 6, 1, 10, 0, 0)
+        db_op1.completed_at = datetime(2026, 6, 10, 15, 0, 0)
+
+    # 2. OP criada e concluída com atraso em Junho/2026
+    op2_form = OpFormDTO(
+        numero_op="6002",
+        cliente="CLIENTE B",
+        modelo="MOD-2",
+        quantidade=5,
+        voltagem="380",
+        data_inicio=date(2026, 6, 5),
+        data_entrega=date(2026, 6, 20),
+        setor_id=sector_id,
+        status=OpStatus.CONCLUIDO,
+    )
+    op2 = repo.create_op(op2_form, station_id="st-1")
+    # Ajusta completed_at para 25/06/2026 (com atraso)
+    with repo.database.write_session() as session:
+        db_op2 = session.get(OpModel, op2.id)
+        db_op2.created_at = datetime(2026, 6, 5, 10, 0, 0)
+        db_op2.completed_at = datetime(2026, 6, 25, 17, 0, 0)
+
+    # Gera relatório de Junho / 2026 (mês fechado)
+    ref_date = date(2026, 9, 25)
+    summary_jun = service.build_summary(2026, 6, reference_date=ref_date)
+
+    assert summary_jun.is_mes_fechado is True
+    assert summary_jun.total_concluidas == 2
+    assert summary_jun.concluidas_no_prazo == 1
+    assert summary_jun.concluidas_com_atraso == 1
+    assert summary_jun.taxa_pontualidade == 50.0
+    assert summary_jun.total_concluidas_pecas == 15
+    assert summary_jun.lead_time_medio_dias == 14.5  # ((10-1) + (25-5)) / 2 = (9 + 20) / 2 = 14.5
+    assert summary_jun.em_producao_agora == 0
+
+    # Mês Atual: Setembro / 2026 (em andamento)
+    # 3. OP ativa no prazo em Setembro/2026
+    op3_form = OpFormDTO(
+        numero_op="6003",
+        cliente="CLIENTE C",
+        modelo="MOD-3",
+        quantidade=8,
+        voltagem="440",
+        data_inicio=date(2026, 9, 10),
+        data_entrega=date(2026, 9, 28),
+        setor_id=sector_id,
+        status=OpStatus.EM_DIA,
+    )
+    op3 = repo.create_op(op3_form, station_id="st-1")
+    with repo.database.write_session() as session:
+        db_op3 = session.get(OpModel, op3.id)
+        db_op3.created_at = datetime(2026, 9, 10, 8, 0, 0)
+
+    # 4. OP ativa em atraso em Setembro/2026
+    op4_form = OpFormDTO(
+        numero_op="6004",
+        cliente="CLIENTE D",
+        modelo="MOD-4",
+        quantidade=12,
+        voltagem="220",
+        data_inicio=date(2026, 9, 5),
+        data_entrega=date(2026, 9, 20),  # Venceu antes de 25/09
+        setor_id=sector_id,
+        status=OpStatus.EM_ATRASO,
+    )
+    op4 = repo.create_op(op4_form, station_id="st-1")
+    with repo.database.write_session() as session:
+        db_op4 = session.get(OpModel, op4.id)
+        db_op4.created_at = datetime(2026, 9, 5, 8, 0, 0)
+
+    summary_set = service.build_summary(2026, 9, reference_date=ref_date)
+    assert summary_set.is_mes_fechado is False
+    assert summary_set.em_producao_agora >= 2
+    assert summary_set.em_atraso_agora >= 1
+    assert summary_set.previsao_restante_mes >= 1
+
+
+def test_monthly_report_export_pdf_and_csv(qapp, tmp_path: Path):
+    from datetime import date
+    from kanban_app.application.dto import OpFormDTO
+    from kanban_app.application.report_service import MonthlyReportService
+    from kanban_app.domain.enums import OpStatus
+
+    container = make_container(tmp_path)
+    repo = container.repository
+    service = MonthlyReportService(repo)
+
+    # Cria uma OP
+    repo.create_op(
+        OpFormDTO(
+            numero_op="6005",
+            cliente="CLIENTE TESTE",
+            modelo="MOD-EXP",
+            quantidade=20,
+            voltagem="220",
+            data_inicio=date(2026, 8, 1),
+            data_entrega=date(2026, 8, 20),
+            status=OpStatus.EM_DIA,
+        ),
+        station_id="st-1",
+    )
+
+    summary = service.build_summary(2026, 8, reference_date=date(2026, 9, 25))
+
+    # 1. Exporta CSV
+    csv_file = tmp_path / "relatorio_teste.csv"
+    saved_csv = service.export_to_csv(summary, csv_file)
+    assert saved_csv.is_file()
+    content = saved_csv.read_text(encoding="utf-8-sig")
+    assert "RELATÓRIO MENSAL DE PRODUÇÃO" in content
+    assert "6005" in content
+    assert "CLIENTE TESTE" in content
+
+
+    # 2. Exporta PDF
+    pdf_file = tmp_path / "relatorio_teste.pdf"
+    saved_pdf = service.export_to_pdf(summary, pdf_file)
+    assert saved_pdf.is_file()
+    assert saved_pdf.stat().st_size > 1000
+
+
+def test_monthly_report_dialog_ui(qtbot, tmp_path: Path):
+    from PySide6.QtGui import QAction
+    from kanban_app.presentation.main_window import MainWindow
+    from kanban_app.presentation.widgets.report_dialog import MonthlyReportDialog
+
+    container = make_container(tmp_path)
+    dialog = MonthlyReportDialog(None, repository=container.repository, initial_year=2026, initial_month=9)
+    qtbot.addWidget(dialog)
+    dialog.show()
+
+    assert dialog.combo_month.currentData() == 9
+    assert dialog.spin_year.value() == 2026
+    assert dialog.donut_widget is not None
+    assert dialog.flow_bar_widget is not None
+    assert dialog.sector_bar_widget is not None
+    assert dialog.tab_widget.count() == 4
+
+    # Testa alternância de mês
+    dialog.btn_prev_month.click()
+    assert dialog.combo_month.currentData() == 8
+
+    # Testa toolbar da MainWindow contendo o botão de Relatórios
+    main_win = MainWindow(container)
+    qtbot.addWidget(main_win)
+    actions = [a.text() for a in main_win.findChildren(QAction)]
+    assert any("Relatórios" in a for a in actions)

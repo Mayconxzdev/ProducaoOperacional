@@ -35,6 +35,7 @@ from kanban_app.presentation.widgets.op_form_dialog import OpFormDialog, STATUS_
 from kanban_app.presentation.widgets.op_reminder_dialog import OpReminderDialog
 from kanban_app.presentation.widgets.op_list_view_widget import OpListViewWidget
 from kanban_app.presentation.widgets.personalization_dialog import PersonalizationDialog
+from kanban_app.presentation.widgets.report_dialog import MonthlyReportDialog
 from kanban_app.presentation.widgets.tv_focus_window import TvFocusWindow
 from kanban_app.presentation.tv_settings import default_tv_settings, normalize_tv_settings
 from kanban_app.presentation.theme import apply_theme
@@ -104,6 +105,7 @@ class MainWindow(QMainWindow):
             ("Importar OP", self._import_ops),
             ("Histórico", self._open_history),
             ("⏰ Lembrete na TV", self._open_reminder_scheduler),
+            ("📊 Relatórios", self._open_reports),
             ("Personalização", self._open_personalization),
             ("Abrir modo TV/Foco", self._open_tv),
         ):
@@ -388,6 +390,10 @@ class MainWindow(QMainWindow):
         dialog.reopen_requested.connect(self._reopen_op)
         dialog.restore_requested.connect(lambda op: self._run_write(lambda: self.container.production_service.restore(op.id, op.row_version)))
         dialog.changes_requested.connect(self._show_changes)
+        dialog.exec()
+
+    def _open_reports(self) -> None:
+        dialog = MonthlyReportDialog(self, repository=self.container.repository)
         dialog.exec()
 
     def _reopen_op(self, op: OpListDTO) -> None:

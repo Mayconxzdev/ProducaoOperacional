@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable
 from uuid import uuid4
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -1046,3 +1046,53 @@ class ProductionRepository:
             resolved_target_days = all_days_set
 
         return bool(r_days & resolved_target_days)
+
+    def get_monthly_report_raw(
+        self,
+        start_date: date,
+        end_date: date,
+    ) -> tuple[list[dict[str, object]], list[SectorDTO]]:
+        """Lê os registros relevantes para o relatório mensal em uma transação curta de leitura."""
+        start_dt = datetime.combine(start_date, datetime.min.time())
+        end_dt = datetime.combine(end_date, datetime.max.time())
+        with self.database.session() as session:
+            sectors = [
+                SectorDTO(s.id, s.nome, s.ordem, s.cor, s.cor_texto, s.ativo)
+                for s in session.execute(select(SectorModel).order_by(SectorModel.ordem)).scalars()
+            ]
+            sector_map = {s.id: s for s in sectors}
+
+            query = (
+                select(OpModel)
+                .where(
+                    or_(
+                        and_(OpModel.created_at >= start_dt, OpModel.created_at <= end_dt),
+                        and_(OpModel.completed_at >= start_dt, OpModel.completed_at <= end_dt),
+                        and_(OpModel.data_inicio >= start_date, OpModel.data_inicio <= end_date),
+                        OpModel.archived.is_(False),
+                    )
+                )
+                .order_by(OpModel.id)
+            )
+            rows = session.execute(query).scalars().all()
+            ops_data = []
+            for op in rows:
+                sec = sector_map.get(op.setor_id) if op.setor_id else None
+                ops_data.append({
+                    "id": op.id,
+                    "numero_op": op.numero_op,
+                    "cliente": op.cliente,
+                    "modelo": op.modelo,
+                    "quantidade": op.quantidade,
+                    "voltagem": op.voltagem,
+                    "data_inicio": op.data_inicio,
+                    "data_entrega": op.data_entrega,
+                    "setor_id": op.setor_id,
+                    "setor_nome": sec.nome if sec else "Sem setor",
+                    "setor_cor": sec.cor if sec else "#475569",
+                    "status": op.status,
+                    "completed_at": op.completed_at,
+                    "created_at": op.created_at,
+                    "archived": op.archived,
+                })
+            return ops_data, sectors
