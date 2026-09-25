@@ -448,10 +448,18 @@ class MonthlyReportService:
         """Gera uma pasta de trabalho Excel (.xlsx) altamente profissional e diagramada."""
         import sys
 
-        sys.modules.setdefault("numpy", None)
-        import openpyxl
-        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-        from openpyxl.utils import get_column_letter
+        missing = object()
+        previous_numpy = sys.modules.get("numpy", missing)
+        sys.modules["numpy"] = None
+        try:
+            import openpyxl
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+            from openpyxl.utils import get_column_letter
+        finally:
+            if previous_numpy is missing:
+                sys.modules.pop("numpy", None)
+            else:
+                sys.modules["numpy"] = previous_numpy
 
         target = Path(file_path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -749,7 +757,6 @@ class MonthlyReportService:
                         str(browser_bin),
                         "--headless=new",
                         "--disable-gpu",
-                        "--no-sandbox",
                         "--no-pdf-header-footer",
                         "--run-all-compositor-stages-before-draw",
                         "--no-first-run",
