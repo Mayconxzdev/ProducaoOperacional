@@ -47,7 +47,7 @@ TV_DEFAULT_FONT_SCALES = {
     "op": 48,
     "status": 42,
     "cliente": 35,
-    "modelo": 48,
+    "modelo": 40,
     "voltagem": 35,
     "quantidade": 70,
     "inicio": 35,
@@ -145,7 +145,16 @@ def normalize_tv_settings(values: Mapping[str, object] | None) -> dict[str, obje
     order.extend(key for key in allowed_order if key not in order)
 
     widths = _normalize_int_map(values.get("column_widths"), TV_DEFAULT_WIDTHS, low=20, high=5000)
-    font_scales = _normalize_int_map(values.get("column_font_scales"), TV_DEFAULT_FONT_SCALES, low=35, high=250)
+    raw_font_scales = values.get("column_font_scales")
+    font_scales = _normalize_int_map(raw_font_scales, TV_DEFAULT_FONT_SCALES, low=35, high=250)
+    if isinstance(raw_font_scales, Mapping):
+        # The previous default clipped the longest model names on Full HD TVs.
+        # Migrate an untouched old font preset and preserve custom font scales.
+        legacy_default_scales = dict(TV_DEFAULT_FONT_SCALES)
+        legacy_default_scales["modelo"] = 48
+        legacy_scales = _normalize_int_map(raw_font_scales, legacy_default_scales, low=35, high=250)
+        if legacy_scales == legacy_default_scales:
+            font_scales = dict(TV_DEFAULT_FONT_SCALES)
 
     headers = _normalize_text_map(values.get("column_headers"), TV_DEFAULT_HEADERS, allowed_keys=allowed, max_length=40)
     alignments = _normalize_choice_map(
