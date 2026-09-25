@@ -190,9 +190,15 @@ class MonthlyReportDialog(QDialog):
 
         # Coluna 2: Fluxo Semanal
         col2 = QVBoxLayout()
-        col2_title = QLabel("📊 Fluxo Semanal (Entradas vs Saídas)", charts_frame)
+        col2_header = QHBoxLayout()
+        col2_title = QLabel("📊 Fluxo Semanal", charts_frame)
         col2_title.setStyleSheet("font-weight: 700; color: #f8fafc; font-size: 10pt;")
-        col2.addWidget(col2_title)
+        col2_header.addWidget(col2_title)
+        col2_sub = QLabel("<span style='color: #3b82f6;'>■ Entradas</span> &nbsp;&bull;&nbsp; <span style='color: #10b981;'>■ Saídas</span>", charts_frame)
+        col2_sub.setStyleSheet("font-size: 8pt; color: #94a3b8; font-weight: 600;")
+        col2_header.addStretch(1)
+        col2_header.addWidget(col2_sub)
+        col2.addLayout(col2_header)
         self.flow_bar_widget = FlowBarChartWidget(charts_frame)
         col2.addWidget(self.flow_bar_widget)
         charts_layout.addLayout(col2, 2)
@@ -375,23 +381,25 @@ class MonthlyReportDialog(QDialog):
             )
 
         # Atualiza Cards de KPI
-        self._update_kpi(self.card_in, f"{summary.total_criadas} OPs", f"{summary.total_criadas_pecas} peças")
-        self._update_kpi(self.card_out, f"{summary.total_concluidas} OPs", f"{summary.total_concluidas_pecas} peças")
-        self._update_kpi(
-            self.card_on_time,
-            f"{summary.concluidas_no_prazo} OPs",
-            f"Pontualidade: {summary.taxa_pontualidade:.1f}%",
-        )
-        self._update_kpi(
-            self.card_delayed,
-            f"{summary.concluidas_com_atraso} OPs",
-            f"Lead Time: {summary.lead_time_medio_dias:.1f}d",
-        )
-        self._update_kpi(
-            self.card_in_line,
-            f"{summary.em_producao_agora} OPs",
-            f"{summary.em_atraso_agora} em atraso hoje",
-        )
+        ops_in_txt = "1 OP" if summary.total_criadas == 1 else f"{summary.total_criadas} OPs"
+        pecas_in_txt = "1 peça" if summary.total_criadas_pecas == 1 else f"{summary.total_criadas_pecas} peças"
+        self._update_kpi(self.card_in, ops_in_txt, pecas_in_txt)
+
+        ops_out_txt = "1 OP" if summary.total_concluidas == 1 else f"{summary.total_concluidas} OPs"
+        ciclo_txt = f"Ciclo Médio: {summary.lead_time_medio_dias:.1f}d" if summary.total_concluidas > 0 else "Sem saídas"
+        self._update_kpi(self.card_out, ops_out_txt, ciclo_txt)
+
+        ops_on_time_txt = "1 OP" if summary.concluidas_no_prazo == 1 else f"{summary.concluidas_no_prazo} OPs"
+        pont_txt = f"Pontualidade: {summary.taxa_pontualidade:.1f}%" if summary.total_concluidas > 0 else "N/A"
+        self._update_kpi(self.card_on_time, ops_on_time_txt, pont_txt)
+
+        ops_delayed_txt = "1 OP" if summary.concluidas_com_atraso == 1 else f"{summary.concluidas_com_atraso} OPs"
+        taxa_atraso = (100.0 - summary.taxa_pontualidade) if summary.total_concluidas > 0 else 0.0
+        self._update_kpi(self.card_delayed, ops_delayed_txt, f"Taxa de Atraso: {taxa_atraso:.1f}%")
+
+        ops_in_line_txt = "1 OP" if summary.em_producao_agora == 1 else f"{summary.em_producao_agora} OPs"
+        atraso_txt = f"{summary.em_atraso_agora} em atraso hoje" if summary.em_atraso_agora > 0 else "Todas no prazo"
+        self._update_kpi(self.card_in_line, ops_in_line_txt, atraso_txt)
 
         # Atualiza Gráficos
         self.donut_widget.set_data(
@@ -486,6 +494,14 @@ class MonthlyReportDialog(QDialog):
             )
             if res == QMessageBox.StandardButton.Yes:
                 os.startfile(str(saved))
+        except PermissionError:
+            QMessageBox.critical(
+                self,
+                "Arquivo Bloqueado",
+                "Não foi possível salvar o PDF porque o arquivo já está aberto em outro programa "
+                "(como Navegador ou Leitor de PDF).\n\n"
+                "Por favor, feche o arquivo e tente exportar novamente."
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Erro na Exportação", f"Não foi possível gerar o PDF:\n{exc}")
 
@@ -513,5 +529,13 @@ class MonthlyReportDialog(QDialog):
             )
             if res == QMessageBox.StandardButton.Yes:
                 os.startfile(str(saved))
+        except PermissionError:
+            QMessageBox.critical(
+                self,
+                "Arquivo Bloqueado",
+                "Não foi possível salvar a planilha porque o arquivo já está aberto no Microsoft Excel "
+                "ou em outro visualizador.\n\n"
+                "Por favor, feche a planilha e tente exportar novamente."
+            )
         except Exception as exc:
             QMessageBox.critical(self, "Erro na Exportação", f"Não foi possível exportar a planilha:\n{exc}")

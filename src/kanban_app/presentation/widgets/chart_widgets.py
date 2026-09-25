@@ -45,19 +45,51 @@ class PunctualityDonutWidget(QWidget):
             painter.setPen(QColor("#94a3b8"))
             painter.setFont(QFont("Segoe UI", 10, QFont.Weight.DemiBold))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "Sem saídas")
+        elif self._delayed_count == 0:
+            # 100% no prazo: anel inteiramente verde, zero cor vermelha
+            green_pen = QPen(QColor("#22c55e"), pen_width, Qt.PenStyle.SolidLine)
+            painter.setPen(green_pen)
+            painter.drawEllipse(rect)
+
+            painter.setPen(QColor("#4ade80"))
+            f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
+            painter.setFont(f_num)
+            text_rect = QRectF(rect.x(), rect.y() - 6, rect.width(), rect.height() * 0.6)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self._on_time_pct:.1f}%")
+
+            f_lbl = QFont("Segoe UI", max(8, int(side * 0.085)), QFont.Weight.DemiBold)
+            painter.setFont(f_lbl)
+            painter.setPen(QColor("#86efac"))
+            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.46, rect.width(), rect.height() * 0.35)
+            painter.drawText(lbl_rect, Qt.AlignmentFlag.AlignCenter, "No Prazo")
+        elif self._on_time_count == 0:
+            # 100% com atraso: anel inteiramente vermelho
+            red_pen = QPen(QColor("#ef4444"), pen_width, Qt.PenStyle.SolidLine)
+            painter.setPen(red_pen)
+            painter.drawEllipse(rect)
+
+            painter.setPen(QColor("#f87171"))
+            f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
+            painter.setFont(f_num)
+            text_rect = QRectF(rect.x(), rect.y() - 6, rect.width(), rect.height() * 0.6)
+            painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self._on_time_pct:.1f}%")
+
+            f_lbl = QFont("Segoe UI", max(8, int(side * 0.085)), QFont.Weight.DemiBold)
+            painter.setFont(f_lbl)
+            painter.setPen(QColor("#fca5a5"))
+            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.46, rect.width(), rect.height() * 0.35)
+            painter.drawText(lbl_rect, Qt.AlignmentFlag.AlignCenter, "Com Atraso")
         else:
-            # Anel base vermelho (representa atrasos)
+            # Misto: anel base vermelho e arco verde proporcional
             bg_pen = QPen(QColor("#ef4444"), pen_width, Qt.PenStyle.SolidLine)
             painter.setPen(bg_pen)
             painter.drawEllipse(rect)
 
-            # Arco verde para entregas no prazo
             span_angle = int((self._on_time_pct / 100.0) * 360 * 16)
             green_pen = QPen(QColor("#22c55e"), pen_width, Qt.PenStyle.SolidLine)
             painter.setPen(green_pen)
             painter.drawArc(rect, 90 * 16, -span_angle)
 
-            # Texto central com contraste perfeito sobre fundo escuro
             painter.setPen(QColor("#f8fafc"))
             f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
             painter.setFont(f_num)
@@ -233,4 +265,5 @@ class SectorBarChartWidget(QWidget):
             painter.setFont(QFont("Segoe UI", 8, QFont.Weight.Bold))
             painter.setPen(QColor("#94a3b8"))
             val_rect = QRectF(bar_x + bar_area_w + 8, y, val_w, row_h)
-            painter.drawText(val_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, f"{sec.total_ops} OPs")
+            op_lbl = f"{sec.total_ops} OP" if sec.total_ops == 1 else f"{sec.total_ops} OPs"
+            painter.drawText(val_rect, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, op_lbl)
