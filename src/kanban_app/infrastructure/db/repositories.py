@@ -1062,6 +1062,16 @@ class ProductionRepository:
             ]
             sector_map = {s.id: s for s in sectors}
 
+            # Data da última transição de setor no histórico
+            sector_transition_dates: dict[int, datetime] = {}
+            history_rows = session.execute(
+                select(OpHistoryModel.op_id, OpHistoryModel.occurred_at)
+                .where(OpHistoryModel.field_name == "setor_id")
+                .order_by(OpHistoryModel.occurred_at.asc())
+            ).all()
+            for op_id, occ_at in history_rows:
+                sector_transition_dates[op_id] = occ_at
+
             query = (
                 select(OpModel)
                 .where(
@@ -1069,6 +1079,7 @@ class ProductionRepository:
                         and_(OpModel.created_at >= start_dt, OpModel.created_at <= end_dt),
                         and_(OpModel.completed_at >= start_dt, OpModel.completed_at <= end_dt),
                         and_(OpModel.data_inicio >= start_date, OpModel.data_inicio <= end_date),
+                        and_(OpModel.updated_at >= start_dt, OpModel.updated_at <= end_dt),
                         OpModel.archived.is_(False),
                     )
                 )
@@ -1092,7 +1103,9 @@ class ProductionRepository:
                     "setor_cor": sec.cor if sec else "#475569",
                     "status": op.status,
                     "completed_at": op.completed_at,
+                    "sector_entered_at": sector_transition_dates.get(op.id),
                     "created_at": op.created_at,
+                    "updated_at": op.updated_at,
                     "archived": op.archived,
                 })
             return ops_data, sectors

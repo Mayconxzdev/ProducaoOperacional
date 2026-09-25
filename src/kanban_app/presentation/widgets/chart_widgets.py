@@ -29,10 +29,10 @@ class PunctualityDonutWidget(QWidget):
 
         w = self.width()
         h = self.height()
-        side = min(w, h - 35)
-        rect = QRectF((w - side) / 2 + 10, 8, side - 20, side - 20)
+        side = min(w - 12, h - 30)
+        rect = QRectF((w - side) / 2, 4, side, side)
 
-        pen_width = max(14, int(side * 0.15))
+        pen_width = max(11, int(side * 0.11))
         rect.adjust(pen_width / 2, pen_width / 2, -pen_width / 2, -pen_width / 2)
 
         total = self._on_time_count + self._delayed_count
@@ -52,15 +52,15 @@ class PunctualityDonutWidget(QWidget):
             painter.drawEllipse(rect)
 
             painter.setPen(QColor("#4ade80"))
-            f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
+            f_num = QFont("Segoe UI", max(11, int(side * 0.135)), QFont.Weight.Bold)
             painter.setFont(f_num)
-            text_rect = QRectF(rect.x(), rect.y() - 6, rect.width(), rect.height() * 0.6)
+            text_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.23, rect.width(), rect.height() * 0.35)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self._on_time_pct:.1f}%")
 
-            f_lbl = QFont("Segoe UI", max(8, int(side * 0.085)), QFont.Weight.DemiBold)
+            f_lbl = QFont("Segoe UI", max(8, int(side * 0.08)), QFont.Weight.DemiBold)
             painter.setFont(f_lbl)
             painter.setPen(QColor("#86efac"))
-            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.46, rect.width(), rect.height() * 0.35)
+            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.55, rect.width(), rect.height() * 0.25)
             painter.drawText(lbl_rect, Qt.AlignmentFlag.AlignCenter, "No Prazo")
         elif self._on_time_count == 0:
             # 100% com atraso: anel inteiramente vermelho
@@ -69,15 +69,15 @@ class PunctualityDonutWidget(QWidget):
             painter.drawEllipse(rect)
 
             painter.setPen(QColor("#f87171"))
-            f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
+            f_num = QFont("Segoe UI", max(11, int(side * 0.135)), QFont.Weight.Bold)
             painter.setFont(f_num)
-            text_rect = QRectF(rect.x(), rect.y() - 6, rect.width(), rect.height() * 0.6)
+            text_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.23, rect.width(), rect.height() * 0.35)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self._on_time_pct:.1f}%")
 
-            f_lbl = QFont("Segoe UI", max(8, int(side * 0.085)), QFont.Weight.DemiBold)
+            f_lbl = QFont("Segoe UI", max(8, int(side * 0.08)), QFont.Weight.DemiBold)
             painter.setFont(f_lbl)
             painter.setPen(QColor("#fca5a5"))
-            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.46, rect.width(), rect.height() * 0.35)
+            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.55, rect.width(), rect.height() * 0.25)
             painter.drawText(lbl_rect, Qt.AlignmentFlag.AlignCenter, "Com Atraso")
         else:
             # Misto: anel base vermelho e arco verde proporcional
@@ -91,15 +91,15 @@ class PunctualityDonutWidget(QWidget):
             painter.drawArc(rect, 90 * 16, -span_angle)
 
             painter.setPen(QColor("#f8fafc"))
-            f_num = QFont("Segoe UI", max(13, int(side * 0.17)), QFont.Weight.Bold)
+            f_num = QFont("Segoe UI", max(11, int(side * 0.135)), QFont.Weight.Bold)
             painter.setFont(f_num)
-            text_rect = QRectF(rect.x(), rect.y() - 6, rect.width(), rect.height() * 0.6)
+            text_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.23, rect.width(), rect.height() * 0.35)
             painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, f"{self._on_time_pct:.1f}%")
 
-            f_lbl = QFont("Segoe UI", max(8, int(side * 0.085)), QFont.Weight.DemiBold)
+            f_lbl = QFont("Segoe UI", max(8, int(side * 0.08)), QFont.Weight.DemiBold)
             painter.setFont(f_lbl)
             painter.setPen(QColor("#94a3b8"))
-            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.46, rect.width(), rect.height() * 0.35)
+            lbl_rect = QRectF(rect.x(), rect.y() + rect.height() * 0.55, rect.width(), rect.height() * 0.25)
             painter.drawText(lbl_rect, Qt.AlignmentFlag.AlignCenter, "No Prazo")
 
         # Legenda inferior

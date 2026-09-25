@@ -78,6 +78,7 @@ class MonthlyReportService:
         sector_counts: dict[str, int] = {s.nome: 0 for s in sectors}
         sector_pcs: dict[str, int] = {s.nome: 0 for s in sectors}
 
+        CONCLUDED_SECTORS = {"expedição", "expedicao", "faturado"}
         seen_op_ids: set[int] = set()
 
         for op in raw_ops:
@@ -90,6 +91,15 @@ class MonthlyReportService:
             sec_nome = str(op["setor_nome"] or "Sem setor")
             status_str = str(op["status"] or "")
 
+            sec_nome_lower = sec_nome.strip().lower()
+            is_concluded_sector = sec_nome_lower in CONCLUDED_SECTORS
+            is_status_concluido = (status_str == "CONCLUIDO")
+
+            # Data de conclusão efetiva: completed_at oficial ou transição para setor final/atualização
+            effective_completed_at: datetime | None = None
+            if is_status_concluido or is_concluded_sector:
+                effective_completed_at = op_completed_at or op.get("sector_entered_at") or op.get("updated_at")
+
             created_in_month = False
             if op_created_at and periodo_inicio <= op_created_at.date() <= periodo_fim:
                 created_in_month = True
@@ -97,10 +107,10 @@ class MonthlyReportService:
                 created_in_month = True
 
             completed_in_month = False
-            if op_completed_at and periodo_inicio <= op_completed_at.date() <= periodo_fim:
+            if effective_completed_at and periodo_inicio <= effective_completed_at.date() <= periodo_fim:
                 completed_in_month = True
 
-            is_active_current = is_current_month and not op["archived"] and status_str != "CONCLUIDO"
+            is_active_current = is_current_month and not op["archived"] and not (is_status_concluido or is_concluded_sector)
 
             if not (created_in_month or completed_in_month or (is_current_month and is_active_current)):
                 continue
@@ -122,8 +132,8 @@ class MonthlyReportService:
                 concluded_count += 1
                 concluded_pcs += qtd
 
-                if d_entrega is not None and op_completed_at is not None:
-                    if op_completed_at.date() <= d_entrega:
+                if d_entrega is not None and effective_completed_at is not None:
+                    if effective_completed_at.date() <= d_entrega:
                         entregue_no_prazo = True
                         on_time_count += 1
                         categoria = "CONCLUIDA_NO_PRAZO"
@@ -136,8 +146,8 @@ class MonthlyReportService:
                     on_time_count += 1
                     categoria = "CONCLUIDA_NO_PRAZO"
 
-                if d_inicio and op_completed_at:
-                    diff = (op_completed_at.date() - d_inicio).days
+                if d_inicio and effective_completed_at:
+                    diff = (effective_completed_at.date() - d_inicio).days
                     dias_producao = max(0, diff)
                     lead_time_days_total += dias_producao
                     lead_time_ops_count += 1
@@ -171,10 +181,10 @@ class MonthlyReportService:
                     quantidade=op["quantidade"],
                     voltagem=str(op["voltagem"] or ""),
                     setor_nome=sec_nome,
-                    status=status_str,
+                    status="CONCLUIDO" if (is_status_concluido or is_concluded_sector) else status_str,
                     data_inicio=d_inicio,
                     data_entrega=d_entrega,
-                    completed_at=op_completed_at,
+                    completed_at=effective_completed_at,
                     dias_producao=dias_producao,
                     entregue_no_prazo=entregue_no_prazo,
                     esta_em_atraso=esta_em_atraso,
@@ -592,13 +602,13 @@ class MonthlyReportService:
             bg_tr = "#ffffff" if idx % 2 == 0 else "#f8fafc"
 
             if op.categoria == "CONCLUIDA_NO_PRAZO":
-                badge = "<span style='background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>✔ No Prazo</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>✔ No Prazo</span>"
             elif op.categoria == "CONCLUIDA_COM_ATRASO":
-                badge = "<span style='background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>✖ Com Atraso</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>✖ Com Atraso</span>"
             elif op.categoria == "EM_ATRASO":
-                badge = "<span style='background: #ffe4e6; color: #dc2626; border: 1px solid #fecdd3; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>🚨 Atrasada Hoje</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #ffe4e6; color: #dc2626; border: 1px solid #fecdd3; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>🚨 Atrasada Hoje</span>"
             else:
-                badge = "<span style='background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>⚙ Em Linha</span>"
+                badge = "<span style='display: inline-block; white-space: nowrap; background: #dbeafe; color: #1d4ed8; border: 1px solid #bfdbfe; padding: 3px 8px; border-radius: 12px; font-weight: bold; font-size: 10px;'>⚙ Em Linha</span>"
 
             rows_html.append(
                 f"""
@@ -612,7 +622,7 @@ class MonthlyReportService:
                     <td style='padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{format_br_date(op.data_entrega) or '-'}</td>
                     <td style='padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
                     <td style='padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: 600; color: #0f172a;'>{op.dias_producao if op.dias_producao is not None else '-'} d</td>
-                    <td style='padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: center;'>{badge}</td>
+                    <td style='padding: 7px 8px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>{badge}</td>
                 </tr>
                 """
             )
@@ -733,8 +743,8 @@ class MonthlyReportService:
                     <td style='padding: 4px 6px; border-bottom: 1px solid #e2e8f0; color: #475569;'>{op.modelo[:26]}</td>
                     <td style='padding: 4px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; color: #64748b;'>{dt_conc}</td>
                     <td style='padding: 4px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; font-weight: bold;'>{op.dias_producao or '-'} d</td>
-                    <td style='padding: 4px 6px; border-bottom: 1px solid #e2e8f0; text-align: center;'>
-                        <span style='background: {b_bg}; color: {b_color}; padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 9px;'>{b_txt}</span>
+                    <td style='padding: 4px 6px; border-bottom: 1px solid #e2e8f0; text-align: center; white-space: nowrap;'>
+                        <span style='display: inline-block; white-space: nowrap; background: {b_bg}; color: {b_color}; padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 9px;'>{b_txt}</span>
                     </td>
                 </tr>
                 """
@@ -915,12 +925,12 @@ class MonthlyReportService:
                             <table style='width: 100%; border-collapse: collapse; font-size: 9px;'>
                                 <thead>
                                     <tr style='background: #e2e8f0; color: #1e293b;'>
-                                        <th style='padding: 4px 6px; text-align: center; width: 50px;'>OP</th>
+                                        <th style='padding: 4px 6px; text-align: center; width: 45px;'>OP</th>
                                         <th style='padding: 4px 6px; text-align: left;'>Cliente</th>
                                         <th style='padding: 4px 6px; text-align: left;'>Modelo</th>
                                         <th style='padding: 4px 6px; text-align: center; width: 70px;'>Conclusão</th>
                                         <th style='padding: 4px 6px; text-align: center; width: 45px;'>Ciclo</th>
-                                        <th style='padding: 4px 6px; text-align: center; width: 75px;'>Situação</th>
+                                        <th style='padding: 4px 6px; text-align: center; width: 90px;'>Situação</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -988,16 +998,16 @@ class MonthlyReportService:
                 <table class='data'>
                     <thead>
                         <tr>
-                            <th style='width: 55px; text-align: center;'>OP</th>
-                            <th style='width: 170px;'>Cliente</th>
+                            <th style='width: 48px; text-align: center;'>OP</th>
+                            <th style='width: 155px;'>Cliente</th>
                             <th>Modelo</th>
-                            <th style='width: 40px; text-align: center;'>Qtd</th>
-                            <th style='width: 90px;'>Setor</th>
+                            <th style='width: 38px; text-align: center;'>Qtd</th>
+                            <th style='width: 85px;'>Setor</th>
                             <th style='width: 75px; text-align: center;'>Início</th>
                             <th style='width: 75px; text-align: center;'>Entrega</th>
                             <th style='width: 75px; text-align: center;'>Conclusão</th>
-                            <th style='width: 50px; text-align: center;'>Ciclo</th>
-                            <th style='width: 105px; text-align: center;'>Situação</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
+                            <th style='width: 120px; text-align: center;'>Situação</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1021,16 +1031,16 @@ class MonthlyReportService:
                 <table class='data'>
                     <thead>
                         <tr>
-                            <th style='width: 55px; text-align: center;'>OP</th>
-                            <th style='width: 170px;'>Cliente</th>
+                            <th style='width: 48px; text-align: center;'>OP</th>
+                            <th style='width: 155px;'>Cliente</th>
                             <th>Modelo</th>
-                            <th style='width: 40px; text-align: center;'>Qtd</th>
-                            <th style='width: 90px;'>Setor</th>
+                            <th style='width: 38px; text-align: center;'>Qtd</th>
+                            <th style='width: 85px;'>Setor</th>
                             <th style='width: 75px; text-align: center;'>Início</th>
                             <th style='width: 75px; text-align: center;'>Entrega</th>
                             <th style='width: 75px; text-align: center;'>Conclusão</th>
-                            <th style='width: 50px; text-align: center;'>Ciclo</th>
-                            <th style='width: 105px; text-align: center;'>Situação</th>
+                            <th style='width: 45px; text-align: center;'>Ciclo</th>
+                            <th style='width: 120px; text-align: center;'>Situação</th>
                         </tr>
                     </thead>
                     <tbody>
