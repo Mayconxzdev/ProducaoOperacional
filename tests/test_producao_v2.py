@@ -1432,3 +1432,37 @@ def test_monthly_report_dialog_ui(qtbot, tmp_path: Path):
     qtbot.addWidget(main_win)
     actions = [a.text() for a in main_win.findChildren(QAction)]
     assert any("Relatórios" in a for a in actions)
+
+
+def test_browser_executable_and_numpy_isolation(tmp_path: Path):
+    import sys
+    from kanban_app.application.report_service import _find_browser_executable, MonthlyReportService
+
+    # 1. Garante que _find_browser_executable funciona e retorna Path existente ou None
+    browser = _find_browser_executable()
+    if browser is not None:
+        assert browser.is_file()
+
+    # 2. Testa blindagem de numpy simulando sys.modules["numpy"] = None
+    old_np = sys.modules.get("numpy")
+    try:
+        sys.modules["numpy"] = None
+        container = make_container(tmp_path)
+        service = MonthlyReportService(container.repository)
+        summary = service.build_summary(2026, 8, reference_date=date(2026, 9, 25))
+
+        xlsx_file = tmp_path / "teste_sem_numpy.xlsx"
+        saved = service.export_to_excel(summary, xlsx_file)
+        assert saved.is_file()
+        assert saved.stat().st_size > 1000
+
+        pdf_file = tmp_path / "teste_pdf_isolado.pdf"
+        saved_pdf = service.export_to_pdf(summary, pdf_file)
+        assert saved_pdf.is_file()
+        assert saved_pdf.stat().st_size > 1000
+    finally:
+        if old_np is not None:
+            sys.modules["numpy"] = old_np
+        else:
+            sys.modules.pop("numpy", None)
+
