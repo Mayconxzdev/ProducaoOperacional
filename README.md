@@ -4,7 +4,7 @@
 
 # Produção Operacional
 
-**Aplicação desktop Windows implantada em 10+ computadores e 1 TV de fábrica, apoiando 20+ profissionais em 9 setores produtivos.**
+**Aplicação desktop Windows implantada em 10+ computadores e 1 TV de fábrica, com acompanhamento de OPs, lembretes programados na TV e relatórios mensais em PDF/Excel.**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/Desktop-PySide6-41CD52?logo=qt&logoColor=white)
@@ -15,11 +15,11 @@
 
 [Case no portfólio](https://mayconxzdev.github.io/cases/producao-operacional/) · [Executar demonstração](#executar-a-demonstração) · [Arquitetura](#arquitetura)
 
-<img src="assets/screenshots/escritorio-demo.png" alt="Tela demonstrativa do Produção Operacional no modo Escritório" width="100%">
+<img src="assets/screenshots/tela-inicial.webp" alt="Tela inicial demonstrativa do Produção Operacional no modo Escritório" width="100%">
 
 </div>
 
-> Aplicação desktop Windows para organizar ordens de produção no escritório, automatizar a entrada de novas OPs e manter uma visão coletiva em TV/Foco na fábrica.
+> Aplicação desktop Windows para organizar ordens de produção no escritório, automatizar a entrada de novas OPs, manter uma visão coletiva em TV/Foco, programar lembretes na fábrica e gerar relatórios mensais.
 
 ## Visão geral
 
@@ -30,36 +30,57 @@ Criei o **Produção Operacional** para organizar as ordens de produção no esc
 | **Implantação** | Versão interna instalada em 10+ computadores e uma TV de fábrica. |
 | **Alcance** | Apoia 20+ profissionais distribuídos em nove setores produtivos, além da gestão no escritório. |
 | **Uso diário** | A TV/Foco funciona como referência coletiva para identificar novas OPs e acompanhar onde cada ordem está no processo. |
+| **Lembretes na TV** | Mensagens podem ser programadas por data, horário e duração para aparecer em destaque na TV da fábrica. |
+| **Relatórios** | A produção mensal pode ser consultada por período e exportada em PDF ou planilha Excel. |
 | **Automação** | Uma estação integradora verifica documentos novos no NAS. Na implantação atual, a rotina executa de segunda a sexta às 10h e 15h. |
 | **Continuidade** | NAS somente leitura, linha de base para não reimportar documentos antigos, cache local e bloqueio de OP duplicada. |
 | **Minha atuação** | Produto, arquitetura, interface, banco, migrações, importação, instalador, implantação, treinamento e sustentação. |
 
 ## Modos de uso
 
-- **Escritório:** consulta, cadastro, edição, histórico, check de acompanhamento e importação revisável;
-- **TV/Foco:** painel em tela cheia, paginado e configurável para visualização coletiva na fábrica;
+- **Escritório:** consulta, cadastro, edição, histórico, check de acompanhamento, lembretes, relatórios e importação revisável;
+- **TV/Foco:** painel em tela cheia, paginado e configurável para visualização coletiva na fábrica, incluindo lembretes programados;
+- **Relatórios:** visão mensal com indicadores e exportação em PDF/Excel;
 - **Demonstração:** ambiente local com dez OPs fictícias, sem acessar NAS, banco ou documentos empresariais.
 
 A arquitetura usa SQLite configurável, cache local para leitura, migrações, perfis de instalação e integração agendada. A edição pública mantém o funcionamento do produto e substitui todos os dados reais por exemplos.
 
 ## Interface
 
-### Escritório
+### Tela inicial
 
-![Tela do modo Escritório com OPs fictícias](assets/screenshots/escritorio-demo.png)
+![Tela inicial do Produção Operacional com OPs fictícias](assets/screenshots/tela-inicial.webp)
 
 ### TV/Foco
 
-![Painel TV/Foco em tela cheia](assets/screenshots/tv-foco-demo.png)
+![Painel TV/Foco em tela cheia](assets/screenshots/modo-tv.webp)
 
-### Setores e contraste
+### Lembrete na TV
 
-![Personalização de setores](assets/screenshots/personalizacao-setores.png)
+![Agendamento de lembrete para a TV](assets/screenshots/lembrete-tv.webp)
+
+A mensagem pode receber data, horário e duração, permitindo usar a TV também para avisos operacionais sem transformar o painel em um mural permanente.
+
+### Agenda e aparência dos lembretes
+
+![Configuração de lembretes programados e aparência na TV](assets/screenshots/lembretes-config.webp)
+
+### Relatórios
+
+![Relatório mensal de produção com indicadores e exportação](assets/screenshots/relatorios.webp)
+
+O período é selecionável e o resultado pode ser exportado em **PDF** ou **Excel (.xlsx)** para acompanhamento e compartilhamento.
+
+### Personalização
+
+![Personalização de setores, cores e ordem](assets/screenshots/personalizacao.webp)
 
 ## O que desenvolvi
 
 - cadastro, edição, histórico, status e check de acompanhamento;
 - experiências separadas para o trabalho detalhado no Escritório e a comunicação visual na TV/Foco;
+- lembretes programáveis na TV com mensagem, data, horário, duração e aparência configurável;
+- relatórios mensais com indicadores e exportação em PDF/Excel;
 - setores configuráveis com nome, ordem, disponibilidade, cores e contraste;
 - temas claro, escuro e alinhado ao Windows;
 - SQLite com repositórios, migrações e backup antes de alterações de schema;
