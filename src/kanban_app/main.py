@@ -5,6 +5,9 @@ import logging
 import sys
 from pathlib import Path
 
+# Neutraliza interferência de NumPy global do SO em bibliotecas opcionais como openpyxl
+sys.modules.setdefault("numpy", None)
+
 from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication
 

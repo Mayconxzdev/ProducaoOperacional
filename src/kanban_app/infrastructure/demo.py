@@ -177,7 +177,7 @@ def seed_demo_data(repository: ProductionRepository, *, station_id: str) -> None
     # 3. Mês Atual: 12 OPs em Produção Ativa (todas no prazo -> 100% de conformidade de cronograma!)
     active_samples = (
         ("91001", "Cliente Alfa Metais", "Ventilador Industrial AX-450", 4, "220/380", "Projeto", -4, 4, OpStatus.EM_DIA, "Desenho técnico em fase final de validação."),
-        ("91002", "Cliente Beta Mecânica", "Exaustor Linha Compacta EX-150", 6, "220", "Serralheria", -3, 5, OpStatus.PRIORIDADE, "Chapas de aço carbono cortadas no laser."),
+        ("91002", "Cliente Beta Mecânica", "Exaustor Compacto EX-150", 6, "220", "Serralheria", -3, 5, OpStatus.PRIORIDADE, "Chapas de aço carbono cortadas no laser."),
         ("91003", "Cliente Gama Equipamentos", "Coletor de Pó Série D", 2, "440", "Montagem", -3, 7, OpStatus.EM_DIA, "Conjunto motor alinhado."),
         ("91004", "Cliente Delta Engenharia", "Cabine de Pintura Mini", 1, "220/380", "Bicromatização", -2, 8, OpStatus.AGUARDANDO, "Aguardando retorno do tratamento superficial."),
         ("91005", "Cliente Épsilon Sistemas", "Ventilador Centrífugo CF-700", 3, "380", "Pintura", -2, 9, OpStatus.EM_DIA, "Aplicação de fundo epóxi anticorrosivo."),
@@ -185,7 +185,7 @@ def seed_demo_data(repository: ProductionRepository, *, station_id: str) -> None
         ("91007", "Cliente Eta Soluções", "Filtro de Manga FM-12", 2, "220", "Qualidade", -1, 12, OpStatus.EM_DIA, "Inspeção visual e dimensional em andamento."),
         ("91008", "Cliente Teta Ventilação", "Ventilador de Telhado VT-300", 5, "220", "Montagem", 0, 14, OpStatus.EM_DIA, "Hélices balanceadas dinamicamente."),
         ("91009", "Cliente Iota Indústria", "Exaustor Axial AX-800", 3, "380", "Projeto", 0, 15, OpStatus.EM_DIA, "Especificação técnica aprovada."),
-        ("91010", "Cliente Kappa Mineração", "Ventilador de Alta Pressão VP-100", 1, "440", "Serralheria", 0, 18, OpStatus.EM_DIA, "Caldeiraria pesada iniciada."),
+        ("91010", "Cliente Kappa Mineração", "Ventilador Axial VP-100", 1, "440", "Serralheria", 0, 18, OpStatus.EM_DIA, "Caldeiraria pesada iniciada."),
     )
     for number, client, model, quantity, voltage, sector, start_offset, delivery_offset, status, pending in active_samples:
         repository.create_op(

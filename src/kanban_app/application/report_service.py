@@ -7,10 +7,6 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Sequence
 
-import openpyxl
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
-
 from kanban_app.application.dto import (
     MonthlyOpItemDTO,
     MonthlyReportSummaryDTO,
@@ -36,6 +32,70 @@ MONTH_NAMES = (
     "Novembro",
     "Dezembro",
 )
+
+
+def _find_browser_executable() -> Path | None:
+    """Localiza o executável do Microsoft Edge ou Google Chrome no Windows de forma robusta.
+
+    Varre o Registro do Windows (App Paths oficial de msedge.exe e chrome.exe),
+    pastas Program Files (64 e 32 bits), AppData local e o PATH de comandos.
+    """
+    import os
+    import shutil
+    import sys
+
+    if sys.platform != "win32":
+        for b in ("microsoft-edge", "google-chrome", "chromium"):
+            w = shutil.which(b)
+            if w and Path(w).is_file():
+                return Path(w)
+        return None
+
+    candidates: list[Path] = []
+
+    # 1. Registro do Windows (App Paths oficial)
+    try:
+        import winreg
+
+        for root in (winreg.HKEY_LOCAL_MACHINE, winreg.HKEY_CURRENT_USER):
+            for app in ("msedge.exe", "chrome.exe"):
+                try:
+                    with winreg.OpenKey(root, rf"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{app}") as key:
+                        val, _ = winreg.QueryValueEx(key, "")
+                        if val and Path(val).is_file():
+                            candidates.append(Path(val))
+                except OSError:
+                    pass
+    except Exception:
+        pass
+
+    # 2. Pastas padrão de instalação (64 bits, 32 bits e LocalAppData)
+    pf = os.environ.get("ProgramFiles", r"C:\Program Files")
+    pfx86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
+    localapp = os.environ.get("LOCALAPPDATA", "")
+
+    known_paths = [
+        Path(pf) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        Path(pfx86) / "Microsoft" / "Edge" / "Application" / "msedge.exe",
+        (Path(localapp) / "Microsoft" / "Edge" / "Application" / "msedge.exe") if localapp else None,
+        Path(pf) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        Path(pfx86) / "Google" / "Chrome" / "Application" / "chrome.exe",
+        (Path(localapp) / "Google" / "Chrome" / "Application" / "chrome.exe") if localapp else None,
+    ]
+
+    for p in known_paths:
+        if p and p.is_file() and p not in candidates:
+            candidates.append(p)
+
+    # 3. Executável no PATH do sistema
+    for name in ("msedge", "chrome"):
+        w = shutil.which(name)
+        if w:
+            wp = Path(w)
+            if wp.is_file() and wp not in candidates:
+                candidates.append(wp)
+
+    return candidates[0] if candidates else None
 
 
 def _render_donut_png_base64(on_time_pct: float, on_time_count: int, delayed_count: int) -> str:
@@ -386,6 +446,21 @@ class MonthlyReportService:
 
     def export_to_excel(self, summary: MonthlyReportSummaryDTO, file_path: str | Path) -> Path:
         """Gera uma pasta de trabalho Excel (.xlsx) altamente profissional e diagramada."""
+        import sys
+
+        missing = object()
+        previous_numpy = sys.modules.get("numpy", missing)
+        sys.modules["numpy"] = None
+        try:
+            import openpyxl
+            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+            from openpyxl.utils import get_column_letter
+        finally:
+            if previous_numpy is missing:
+                sys.modules.pop("numpy", None)
+            else:
+                sys.modules["numpy"] = previous_numpy
+
         target = Path(file_path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -649,6 +724,7 @@ class MonthlyReportService:
         """Gera um PDF executivo de alta fidelidade visual usando o motor Chromium do Windows ou Qt."""
         import sys
         import tempfile
+        import time
 
         target = Path(file_path).resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -666,23 +742,19 @@ class MonthlyReportService:
 
         html_content = self._generate_html_report(summary)
 
-        # Salva arquivo HTML temporário
-        temp_html = target.with_suffix(".tmp.html")
+        # Salva arquivo HTML temporário no diretório temp padrão do sistema
+        temp_dir = Path(tempfile.gettempdir())
+        temp_html = temp_dir / f"relatorio_temp_{int(time.time() * 1000)}.html"
         temp_html.write_text(html_content, encoding="utf-8")
 
-        # 2. Tenta usar o Microsoft Edge headless nativo do Windows com perfil isolado
-        edge_paths = [
-            Path(r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"),
-            Path(r"C:\Program Files\Microsoft\Edge\Application\msedge.exe"),
-        ]
-        edge_bin = next((p for p in edge_paths if p.is_file()), None)
-
-        if edge_bin:
+        # 2. Tenta usar o Microsoft Edge / Google Chrome headless nativo com perfil isolado
+        browser_bin = _find_browser_executable()
+        if browser_bin:
             try:
                 with tempfile.TemporaryDirectory() as user_data_dir:
                     in_uri = temp_html.as_uri()
                     cmd = [
-                        str(edge_bin),
+                        str(browser_bin),
                         "--headless=new",
                         "--disable-gpu",
                         "--no-pdf-header-footer",
@@ -694,7 +766,14 @@ class MonthlyReportService:
                         in_uri,
                     ]
                     creation_flags = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
-                    subprocess.run(cmd, capture_output=True, timeout=20, creationflags=creation_flags)
+                    subprocess.run(cmd, capture_output=True, timeout=25, creationflags=creation_flags)
+
+                    # Aguarda até 3 segundos caso o motor Chromium ainda esteja liberando o buffer de gravação
+                    for _ in range(30):
+                        if target.is_file() and target.stat().st_size > 1000:
+                            break
+                        time.sleep(0.1)
+
                     if target.is_file() and target.stat().st_size > 1000:
                         temp_html.unlink(missing_ok=True)
                         return target
@@ -719,8 +798,20 @@ class MonthlyReportService:
             doc.setPageSize(QSizeF(writer.width(), writer.height()))
             doc.print_(writer)
             del writer
+
+            # Aguarda a finalização da escrita no disco
+            for _ in range(10):
+                if target.is_file() and target.stat().st_size > 500:
+                    break
+                time.sleep(0.1)
         finally:
             temp_html.unlink(missing_ok=True)
+
+        if not target.is_file() or target.stat().st_size == 0:
+            raise RuntimeError(
+                f"O arquivo PDF não pôde ser gerado em '{target}'.\n"
+                "Verifique se você possui permissões na pasta de destino ou se o arquivo está bloqueado."
+            )
 
         return target
 

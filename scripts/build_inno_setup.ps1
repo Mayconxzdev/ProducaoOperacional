@@ -272,6 +272,12 @@ Invoke-Checked -FilePath $venvPython -Arguments @(
     "--add-data", ((Join-Path $root "assets\producao_operacional.png") + ";assets"),
     "--add-data", ((Join-Path $root "assets\sounds") + ";assets\sounds"),
     "--collect-all", "openpyxl",
+    "--hidden-import", "PySide6.QtPrintSupport",
+    "--exclude-module", "numpy",
+    "--exclude-module", "scipy",
+    "--exclude-module", "pandas",
+    "--exclude-module", "matplotlib",
+    "--exclude-module", "tkinter",
     "--paths", (Join-Path $root "src"),
     (Join-Path $root "run_app.py")
 ) -FailureMessage "PyInstaller falhou."

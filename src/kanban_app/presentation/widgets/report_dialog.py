@@ -489,6 +489,9 @@ class MonthlyReportDialog(QDialog):
 
         try:
             saved = self.service.export_to_pdf(self._current_summary, file_path)
+            if not saved or not Path(saved).is_file():
+                raise FileNotFoundError(f"O arquivo PDF não foi encontrado após a geração: {saved}")
+
             res = QMessageBox.information(
                 self,
                 "PDF Exportado",
@@ -524,6 +527,9 @@ class MonthlyReportDialog(QDialog):
 
         try:
             saved = self.service.export_to_excel(self._current_summary, file_path)
+            if not saved or not Path(saved).is_file():
+                raise FileNotFoundError(f"A planilha Excel não foi encontrada após a geração: {saved}")
+
             res = QMessageBox.information(
                 self,
                 "Planilha Exportada",
