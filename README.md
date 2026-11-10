@@ -13,7 +13,7 @@
 [![Testes](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml/badge.svg)](https://github.com/Mayconxzdev/ProducaoOperacional/actions/workflows/tests.yml)
 [![Licença MIT](https://img.shields.io/badge/License-MIT-22c55e.svg)](LICENSE)
 
-[Case no portfólio](https://mayconxzdev.github.io/cases/producao-operacional/) · [Executar demonstração](#executar-a-demonstração) · [Arquitetura](#arquitetura)
+[Case no portfólio](https://mayconxzdev.github.io/projetos/producao-operacional/) · [Executar demonstração](#executar-a-demonstração) · [Arquitetura](#arquitetura)
 
 <img src="assets/screenshots/tela-inicial-demo.png" alt="Tela inicial do modo Demonstração, com ordens fictícias e recursos do Produção Operacional" width="100%">
 

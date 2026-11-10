@@ -1423,9 +1423,14 @@ def test_monthly_report_dialog_ui(qtbot, tmp_path: Path):
     assert dialog.sector_bar_widget is not None
     assert dialog.tab_widget.count() == 4
 
-    # Testa alternância de mês
+    # "Mês Anterior" é relativo à data atual, não a initial_month do diálogo.
+    # Evita falha de calendário quando a suíte roda depois de setembro/2026.
+    today = date.today()
+    expected_month = 12 if today.month == 1 else today.month - 1
+    expected_year = today.year - 1 if today.month == 1 else today.year
     dialog.btn_prev_month.click()
-    assert dialog.combo_month.currentData() == 8
+    assert dialog.combo_month.currentData() == expected_month
+    assert dialog.spin_year.value() == expected_year
 
     # Testa toolbar da MainWindow contendo o botão de Relatórios
     main_win = MainWindow(container)
