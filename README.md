@@ -4,7 +4,7 @@
 
 # Produção Operacional
 
-**Aplicação desktop Windows implantada em 10+ computadores e 1 TV de fábrica, apoiando 20+ profissionais em 9 setores produtivos.**
+**Aplicação desktop Windows em uso interno para acompanhar ordens de produção, setores e relatórios, com uma visão compartilhada na TV da fábrica.**
 
 ![Python](https://img.shields.io/badge/Python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![PySide6](https://img.shields.io/badge/Desktop-PySide6-41CD52?logo=qt&logoColor=white)
@@ -27,8 +27,8 @@ Criei o **Produção Operacional** para organizar ordens de produção no escrit
 
 | Aspecto | Situação atual |
 |---|---|
-| **Implantação** | Versão interna instalada em 10+ computadores e uma TV de fábrica. |
-| **Alcance** | Apoia 20+ profissionais distribuídos em nove setores produtivos, além da gestão no escritório. |
+| **Implantação** | Versão interna instalada em computadores e na TV da fábrica. |
+| **Alcance** | Apoia a rotina dos setores produtivos e da gestão no escritório. |
 | **Uso diário** | A TV/Foco funciona como referência coletiva para identificar novas OPs e acompanhar onde cada ordem está no processo. |
 | **Automação** | Uma estação integradora verifica a origem configurada conforme a agenda definida pela operação. |
 | **TV/Foco** | Lembretes podem ser programados com mensagem, dia, horário, frequência e duração. |
